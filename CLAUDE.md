@@ -30,7 +30,8 @@ Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, tex
 Hintergrundfoto der Startseite: Store `kv`, Schlüssel `bgPhoto` (data-URL, leer = Standard-Verlauf).
 „Was koche ich heute?“ (Startseite): Grobauswahl `MOODS` in `app.js`, erkannt über Stichwörter
 (`MOOD_WORDS`) in Titel und Zutaten – kein eigenes Rezeptfeld. Neue Stichwörter dort ergänzen.
-Vorrat: Store `kv`, Schlüssel `pantry` = `{ have: [Wortstamm], extra: [Name], changedAt }`. Zutatenliste wird aus allen
+Vorrat: Store `kv`, Schlüssel `pantry` = `{ have: [Wortstamm], extra: [Name], removed: [Stamm gelöschter
+Grundliste-Einträge], names: { Stamm: Anzeige-Name }, changedAt }`. Bearbeiten-Modus: umbenennen/entfernen. Zutatenliste wird aus allen
 Rezepten erzeugt plus feste Grundliste `BASE_PANTRY` (vom Nutzer vorgegeben). `ingNames()` entfernt Menge/Einheit,
 `ingStem()` macht Ei/Eier gleich und führt gleichbedeutende Namen über `ING_ALIASES` zusammen
 (österreichisch: Rahm=Sahne, Germ=Hefe, Faschiertes=Hackfleisch, Gurkerl=Essiggurken). Abgleich in `pantryMatches()`.

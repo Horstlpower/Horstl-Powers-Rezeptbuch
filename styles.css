@@ -230,6 +230,12 @@ label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
 .match .card:only-child { border-radius: 14px; }
 .match .shop-missing:disabled { color: var(--muted); }
 
+/* ---------- Vorrat bearbeiten ---------- */
+.edit-note p { margin: 0 0 4px; }
+.shop li.edit-row input.ren { width: 100%; height: auto; padding: 7px 10px; font-weight: 600; accent-color: auto; }
+.shop li.edit-row .txt { cursor: default; }
+.edit-row .lock { flex: none; width: 36px; text-align: center; opacity: .55; }
+
 /* ---------- Vorrat / Tiefkühl umschalten ---------- */
 .seg { display: flex; gap: 4px; padding: 4px; margin-bottom: 12px; background: var(--chip); border-radius: 12px; }
 .seg a {

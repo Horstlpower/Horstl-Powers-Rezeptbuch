@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.7.0';
+const APP_VERSION = '1.7.1';
 const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
@@ -987,11 +987,17 @@ function stemCovered(stem, haveSet) {
 }
 async function loadPantry() {
   const p = (await Store.getKV('pantry')) || {};
-  return { have: new Set(Array.isArray(p.have) ? p.have : []), extra: Array.isArray(p.extra) ? p.extra : [], changedAt: p.changedAt || 0 };
+  return {
+    have: new Set(Array.isArray(p.have) ? p.have : []),
+    extra: Array.isArray(p.extra) ? p.extra : [],
+    removed: new Set(Array.isArray(p.removed) ? p.removed : []),   // aus der Grundliste entfernte (Stamm)
+    names: p.names && typeof p.names === 'object' ? p.names : {},     // umbenannte Anzeige-Namen (Stamm → Name)
+    changedAt: p.changedAt || 0,
+  };
 }
 async function savePantry(p) {
   p.changedAt = Date.now();
-  await Store.setKV('pantry', { have: [...p.have], extra: p.extra, changedAt: p.changedAt });
+  await Store.setKV('pantry', { have: [...p.have], extra: p.extra, removed: [...p.removed], names: p.names, changedAt: p.changedAt });
 }
 /* Alle Zutaten aus Rezepten + selbst hinzugefügte, ohne Doppelte (nach Stamm) */
 function pantryItems(recipes, p) {
@@ -1001,9 +1007,10 @@ function pantryItems(recipes, p) {
     if (!map.has(st)) map.set(st, { name, stem: st, extra, base: !!base, uses: 0 });
     return map.get(st);
   };
-  BASE_PANTRY.forEach(n => add(n, false, true));
-  p.extra.forEach(n => add(n, true));
+  BASE_PANTRY.forEach(n => { if (!p.removed.has(ingStem(n))) add(n, false, true); });
+  p.extra.forEach(n => { add(n, true).extra = true; });
   recipes.forEach(r => r.ingredients.forEach(line => ingNames(line).forEach(n => { add(n, false).uses++; })));
+  for (const it of map.values()) if (p.names[it.stem]) it.name = p.names[it.stem];
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
 }
 /* Abgleich: für jedes Rezept die fehlenden Zutatenzeilen */
@@ -1046,6 +1053,12 @@ async function viewPantry() {
     <div class="list-tools">
       <span class="meta" id="pCount" style="margin-right:auto;align-self:center"></span>
       <button class="text-btn" id="pNone">Alle Hakerl entfernen</button>
+      <button class="text-btn" id="pEdit">✏️ Bearbeiten</button>
+    </div>
+    <div class="panel edit-note" id="pEditNote" hidden>
+      <p>Namen antippen und ändern · 🗑 entfernt eine Zutat.
+        Zutaten aus Rezepten kannst du umbenennen, aber nicht entfernen – sie kommen aus dem Rezept.</p>
+      <button class="text-btn" id="pRestore" hidden>Gelöschte Grundliste-Zutaten zurückholen</button>
     </div>
     <ul class="shop" id="pList"></ul>
     <div class="sticky-bar"><button class="btn block" id="pMatch"></button></div>`;
@@ -1053,16 +1066,26 @@ async function viewPantry() {
   const ul = document.getElementById('pList');
   const input = document.getElementById('pInput');
   const btn = document.getElementById('pMatch');
+  let editing = false;
+  const fromText = i => i.uses ? `in ${i.uses} ${i.uses === 1 ? 'Rezept' : 'Rezepten'}` : (i.base ? 'Grundliste' : 'selbst hinzugefügt');
   const draw = () => {
     const q = filter.trim().toLowerCase();
     const list = items.filter(i => !q || i.name.toLowerCase().includes(q));
-    ul.innerHTML = list.length ? list.map(i => {
+    document.getElementById('pEdit').textContent = editing ? '✓ Fertig' : '✏️ Bearbeiten';
+    document.getElementById('pNone').hidden = editing;
+    document.getElementById('pEditNote').hidden = !editing;
+    document.getElementById('pRestore').hidden = !p.removed.size;
+    if (editing) {
+      ul.innerHTML = list.length ? list.map(i => `<li class="edit-row" data-stem="${esc(i.stem)}">
+        <span class="txt"><input class="ren" value="${esc(i.name)}" aria-label="Name ändern" autocomplete="off" enterkeyhint="done">
+          <span class="from">${fromText(i)}</span></span>
+        ${i.uses ? '<span class="lock" title="kommt aus einem Rezept">📖</span>' : '<button class="del" aria-label="Entfernen">🗑</button>'}
+      </li>`).join('') : '<li class="empty">Nichts gefunden.</li>';
+    } else ul.innerHTML = list.length ? list.map(i => {
       const on = p.have.has(i.stem);
       return `<li class="${on ? 'have-row' : ''}" data-stem="${esc(i.stem)}">
         <input type="checkbox" ${on ? 'checked' : ''} aria-label="Zuhause">
-        <span class="txt">${esc(i.name)}${i.uses ? `<span class="from">in ${i.uses} ${i.uses === 1 ? 'Rezept' : 'Rezepten'}</span>`
-          : `<span class="from">${i.base ? 'Grundliste' : 'selbst hinzugefügt'}</span>`}</span>
-        ${i.extra && !i.uses ? '<button class="del" aria-label="Entfernen">✕</button>' : ''}
+        <span class="txt">${esc(i.name)}<span class="from">${fromText(i)}</span></span>
       </li>`;
     }).join('') : `<li class="empty">${items.length ? 'Nichts gefunden – mit ＋ hinzufügen.' : 'Noch keine Zutaten.<br>Lege Rezepte an oder füge Zutaten mit ＋ hinzu.'}</li>`;
     const haveCount = items.filter(i => p.have.has(i.stem)).length;
@@ -1075,20 +1098,75 @@ async function viewPantry() {
   };
   draw();
 
+  /* Eigene Zutat (Grundliste/selbst hinzugefügt) aus der Liste nehmen */
+  const dropOwn = it => {
+    if (it.base) p.removed.add(it.stem);
+    p.extra = p.extra.filter(n => ingStem(n) !== it.stem);
+    delete p.names[it.stem];
+  };
+  /* Eigene Zutat neu aufnehmen (holt Grundliste-Einträge zurück statt doppelt anzulegen) */
+  const addOwn = name => {
+    const st = ingStem(name);
+    if (p.removed.has(st)) {
+      p.removed.delete(st);
+      const def = BASE_PANTRY.find(n => ingStem(n) === st);
+      if (def && def !== name) p.names[st] = name;
+    } else p.extra.push(name);
+  };
+
   ul.onclick = async e => {
     const li = e.target.closest('li[data-stem]');
     if (!li) return;
     const stem = li.dataset.stem;
-    if (e.target.closest('.del')) {
-      const it = items.find(i => i.stem === stem);
-      p.extra = p.extra.filter(n => ingStem(n) !== stem);
+    const it = items.find(i => i.stem === stem);
+    if (editing) {
+      if (!e.target.closest('.del') || !it || it.uses) return;
+      dropOwn(it);
       p.have.delete(stem);
-      items = items.filter(i => i !== it);
-    } else {
-      p.have.has(stem) ? p.have.delete(stem) : p.have.add(stem);
+      items = pantryItems(recipes, p);
+      await savePantry(p);
+      draw();
+      toast(`„${it.name}“ entfernt`);
+      return;
     }
+    p.have.has(stem) ? p.have.delete(stem) : p.have.add(stem);
     await savePantry(p);
     draw();
+  };
+  /* Umbenennen: gleiche Zutat (oder aus Rezept) → nur der Anzeige-Name ändert sich,
+     sonst wird die eigene Zutat durch die neue ersetzt (Hakerl wandert mit) */
+  ul.addEventListener('change', async e => {
+    const inp = e.target.closest('.ren');
+    if (!inp) return;
+    const it = items.find(i => i.stem === inp.closest('li').dataset.stem);
+    const raw = inp.value.trim();
+    if (!it || !raw) { if (it) inp.value = it.name; return; }
+    const name = raw.charAt(0).toUpperCase() + raw.slice(1);
+    if (name === it.name) return;
+    const st = ingStem(name);
+    if (st === it.stem || it.uses) {
+      p.names[it.stem] = name;
+    } else {
+      if (items.some(i => i.stem === st)) { toast(`„${name}“ steht schon in der Liste`); inp.value = it.name; return; }
+      const had = p.have.has(it.stem);
+      dropOwn(it);
+      p.have.delete(it.stem);
+      addOwn(name);
+      if (had) p.have.add(st);
+    }
+    items = pantryItems(recipes, p);
+    await savePantry(p);
+    draw();
+    toast('Gespeichert');
+  });
+  ul.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.closest('.ren')) e.target.blur(); });
+  document.getElementById('pEdit').onclick = () => { editing = !editing; draw(); };
+  document.getElementById('pRestore').onclick = async () => {
+    p.removed.clear();
+    items = pantryItems(recipes, p);
+    await savePantry(p);
+    draw();
+    toast('Grundliste wiederhergestellt');
   };
   input.addEventListener('input', () => { filter = input.value; draw(); });
   document.getElementById('pAddForm').onsubmit = async e => {
@@ -1098,7 +1176,7 @@ async function viewPantry() {
     const name = raw.charAt(0).toUpperCase() + raw.slice(1);
     const stem = ingStem(name);
     if (!items.some(i => i.stem === stem)) {
-      p.extra.push(name);
+      addOwn(name);
       items = pantryItems(recipes, p);
     }
     p.have.add(stem);
