@@ -35,6 +35,8 @@ Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, tex
 - Element-IDs müssen eindeutig sein – `index.html` belegt bereits `title`, `view`, `toast`,
   `backBtn`, `topActions` (eine doppelte `title`-ID hat in 1.0.0 das Speichern kaputt gemacht).
   Beim Testen Formularfelder über das Formular ansprechen, nicht nur über `getElementById`.
+- In Event-Handlern nach einem `await` nie `e.currentTarget` benutzen – Safari setzt es auf `null`
+  (Favoriten-Fehler in 1.0.2). Element vorher in einer Variablen merken.
 - Fehler nie still schlucken: `showError()` nutzen (Hinweis + Dialog, sichtbar trotz iPhone-Tastatur).
 - Service Worker lädt zuerst aus dem Netz, offline aus dem Cache.
 

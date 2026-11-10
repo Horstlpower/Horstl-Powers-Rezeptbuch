@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.2';
+const APP_VERSION = '1.0.3';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
 
@@ -339,11 +339,12 @@ async function viewDetail(id) {
     document.getElementById('plus').onclick = () => { if (servings < 100) { servings++; drawIngs(); } };
   }
 
-  document.getElementById('favBtn').onclick = async e => {
+  const favBtn = document.getElementById('favBtn');
+  favBtn.onclick = async () => {
     r.favorite = !r.favorite;
     r.updatedAt = Date.now();
     await Store.put(r);
-    e.currentTarget.textContent = r.favorite ? '★' : '☆';
+    favBtn.textContent = r.favorite ? '★' : '☆';
     toast(r.favorite ? 'Zu den Favoriten hinzugefügt' : 'Aus den Favoriten entfernt');
   };
   document.getElementById('editBtn').onclick = () => { location.hash = '#/bearbeiten/' + encodeURIComponent(id); };
@@ -477,12 +478,13 @@ async function viewEdit(id) {
   };
   showPhoto();
 
-  document.getElementById('file').onchange = async e => {
-    const file = e.target.files[0];
+  const fileInput = document.getElementById('file');
+  fileInput.onchange = async () => {
+    const file = fileInput.files[0];
+    fileInput.value = '';
     if (!file) return;
     try { photo = await compressImage(file); showPhoto(); }
-    catch (err) { toast(err.message); }
-    e.target.value = '';
+    catch (err) { showError(err.message); }
   };
   rm.onclick = () => { photo = ''; showPhoto(); };
   document.getElementById('cancel').onclick = () => { location.hash = backTarget || '#/'; };
