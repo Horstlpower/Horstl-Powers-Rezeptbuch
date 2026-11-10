@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.0.2';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
 
@@ -21,20 +21,38 @@ function openDb() {
         if (!db.objectStoreNames.contains('recipes')) db.createObjectStore('recipes', { keyPath: 'id' });
         if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv');
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
+      req.onsuccess = () => {
+        const db = req.result;
+        // Safari (iPhone) schließt die Verbindung gern, wenn die App im Hintergrund war.
+        // Dann beim nächsten Zugriff einfach neu öffnen.
+        db.onclose = () => { dbPromise = null; };
+        db.onversionchange = () => { db.close(); dbPromise = null; };
+        resolve(db);
+      };
+      req.onerror = () => { dbPromise = null; reject(req.error); };
+      req.onblocked = () => { dbPromise = null; reject(new Error('Datenbank ist blockiert – bitte die App neu öffnen.')); };
     });
   }
   return dbPromise;
 }
-function tx(store, mode, fn) {
+// Fehler, bei denen eine frische Verbindung hilft
+const RETRYABLE = ['InvalidStateError', 'UnknownError', 'TransactionInactiveError'];
+function tx(store, mode, fn, retry = true) {
+  const again = err => {
+    dbPromise = null;
+    if (retry && err && RETRYABLE.includes(err.name)) return tx(store, mode, fn, false);
+    throw err;
+  };
   return openDb().then(db => new Promise((resolve, reject) => {
-    const t = db.transaction(store, mode);
-    const req = fn(t.objectStore(store));
+    let t, req;
+    try {
+      t = db.transaction(store, mode);
+      req = fn(t.objectStore(store));
+    } catch (err) { reject(err); return; }
     t.oncomplete = () => resolve(req ? req.result : undefined);
     t.onerror = () => reject(t.error);
-    t.onabort = () => reject(t.error);
-  }));
+    t.onabort = () => reject(t.error || new DOMException('Abgebrochen', 'UnknownError'));
+  })).catch(again);
 }
 const Store = {
   all: () => tx('recipes', 'readonly', s => s.getAll()),
@@ -73,6 +91,12 @@ function toast(msg) {
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2800);
+}
+/* Fehler gut sichtbar melden – ein Hinweis unten kann auf dem iPhone
+   hinter der Tastatur verschwinden, ein Dialog nicht. */
+function showError(msg) {
+  toast(msg);
+  setTimeout(() => alert(msg), 50);
 }
 function setHeader(title, back, actionsHtml = '') {
   document.getElementById('title').textContent = title;
@@ -404,8 +428,8 @@ async function viewEdit(id) {
       </label>
       <button type="button" class="link-btn" id="rmPhoto" hidden>Foto entfernen</button>
 
-      <label for="title">Name des Rezepts</label>
-      <input id="title" value="${esc(d.title)}" placeholder="z. B. Kaiserschmarrn" enterkeyhint="next">
+      <label for="r-title">Name des Rezepts</label>
+      <input id="r-title" value="${esc(d.title)}" placeholder="z. B. Kaiserschmarrn" enterkeyhint="next">
 
       <div class="row">
         <div>
@@ -435,7 +459,7 @@ async function viewEdit(id) {
       <input id="src" value="${esc(d.source)}" inputmode="url" placeholder="z. B. Omas Kochbuch oder https://…">
 
       <div class="actions">
-        <button class="btn" type="submit">Speichern</button>
+        <button class="btn" type="submit" id="saveBtn">Speichern</button>
         <button class="btn secondary" type="button" id="cancel">Abbrechen</button>
       </div>
     </form>`;
@@ -463,17 +487,26 @@ async function viewEdit(id) {
   rm.onclick = () => { photo = ''; showPhoto(); };
   document.getElementById('cancel').onclick = () => { location.hash = backTarget || '#/'; };
 
+  let saving = false;
   document.getElementById('f').onsubmit = async e => {
     e.preventDefault();
+    if (saving) return;
     const val = k => document.getElementById(k).value;
-    if (!val('title').trim()) {
-      toast('Bitte gib dem Rezept einen Namen.');
-      document.getElementById('title').focus();
+    if (!val('r-title').trim()) {
+      showError('Bitte gib dem Rezept zuerst einen Namen.');
+      document.getElementById('r-title').focus();
       return;
     }
-    const rec = normalize({
+    // Tastatur schließen, damit die Rückmeldung sichtbar ist
+    if (document.activeElement) document.activeElement.blur();
+    saving = true;
+    const btn = document.getElementById('saveBtn');
+    btn.disabled = true;
+    btn.textContent = 'Speichere …';
+    try {
+      const rec = normalize({
       id: r ? r.id : uid(),
-      title: val('title'),
+      title: val('r-title'),
       category: val('cat'),
       servings: val('srv'),
       time: val('time'),
@@ -484,11 +517,21 @@ async function viewEdit(id) {
       photo,
       favorite: r ? r.favorite : false,
       createdAt: r ? r.createdAt : Date.now(),
-      updatedAt: Date.now(),
-    });
-    await Store.put(rec);
-    toast('Gespeichert');
-    location.replace('#/rezept/' + encodeURIComponent(rec.id));
+        updatedAt: Date.now(),
+      });
+      await Store.put(rec);
+      toast('Gespeichert');
+      // Adresse ersetzen und Ansicht direkt neu zeichnen – verlässt sich nicht
+      // darauf, dass der Browser ein "hashchange" auslöst (Safari tut das hier nicht immer).
+      history.replaceState(null, '', '#/rezept/' + encodeURIComponent(rec.id));
+      await route();
+    } catch (err) {
+      console.error(err);
+      saving = false;
+      btn.disabled = false;
+      btn.textContent = 'Speichern';
+      showError('Speichern hat nicht geklappt: ' + (err && (err.message || err.name) || err));
+    }
   };
 }
 
@@ -681,6 +724,13 @@ const SAMPLE = {
 /* =========================================================
    Start
    ========================================================= */
+// Unerwartete Fehler anzeigen statt still zu scheitern
+window.addEventListener('unhandledrejection', e => {
+  console.error(e.reason);
+  toast('Fehler: ' + (e.reason && (e.reason.message || e.reason.name) || e.reason));
+});
+window.addEventListener('error', e => toast('Fehler: ' + e.message));
+
 document.getElementById('backBtn').onclick = () => { if (backTarget) location.hash = backTarget; };
 window.addEventListener('hashchange', route);
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {

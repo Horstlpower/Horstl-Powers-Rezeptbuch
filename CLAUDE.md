@@ -32,6 +32,11 @@ Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, tex
 - Das Datenformat abwärtskompatibel halten – alte Export-Dateien müssen weiter importierbar sein.
 - Nutzerdaten immer mit `esc()` ausgeben, Bilder nur über `safeImg()`, Links nur über `safeUrl()`.
 - Nur relative Pfade verwenden (die App läuft unter `/Horstl-Powers-Rezeptbuch/`).
+- Element-IDs müssen eindeutig sein – `index.html` belegt bereits `title`, `view`, `toast`,
+  `backBtn`, `topActions` (eine doppelte `title`-ID hat in 1.0.0 das Speichern kaputt gemacht).
+  Beim Testen Formularfelder über das Formular ansprechen, nicht nur über `getElementById`.
+- Fehler nie still schlucken: `showError()` nutzen (Hinweis + Dialog, sichtbar trotz iPhone-Tastatur).
+- Service Worker lädt zuerst aus dem Netz, offline aus dem Cache.
 
 ## Lokal testen
 Im Projektordner einen einfachen Webserver starten (z. B. `python -m http.server 8080`) und

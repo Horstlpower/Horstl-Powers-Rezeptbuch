@@ -1,7 +1,6 @@
 // Service Worker: macht die App offline nutzbar.
-// WICHTIG: Bei jeder Änderung an den App-Dateien die Versionsnummer erhöhen,
-// damit die Handys die neue Version laden.
-const CACHE = 'rezeptbuch-v1';
+// Bei jeder Änderung an den App-Dateien die Versionsnummer erhöhen.
+const CACHE = 'rezeptbuch-v2';
 const ASSETS = [
   './',
   './index.html',
@@ -26,17 +25,15 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Zuerst aus dem Cache (schnell & offline), im Hintergrund aktualisieren.
+// Zuerst aus dem Netz (damit Updates sofort ankommen), ohne Netz aus dem Cache.
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   if (new URL(e.request.url).origin !== location.origin) return;
   e.respondWith(
-    caches.open(CACHE).then(async cache => {
-      const cached = await cache.match(e.request, { ignoreSearch: true });
-      const network = fetch(e.request)
+    caches.open(CACHE).then(cache =>
+      fetch(e.request, { cache: 'no-cache' })
         .then(res => { if (res.ok) cache.put(e.request, res.clone()); return res; })
-        .catch(() => cached);
-      return cached || network;
-    })
+        .catch(() => cache.match(e.request, { ignoreSearch: true }))
+    )
   );
 });
