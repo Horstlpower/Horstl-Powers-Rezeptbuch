@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
@@ -195,6 +195,9 @@ async function route() {
       case 'vorrat':
         if (parts[1] === 'kochen') return await viewPantryMatch();
         return await viewPantry();
+      case 'tiefkuehl':
+        if (parts[1]) return await viewFreezerItem(decodeURIComponent(parts[1]));
+        return await viewFreezer();
       case 'mehr': return await viewMore();
       default: location.hash = '#/';
     }
@@ -1028,12 +1031,14 @@ async function viewPantry() {
   setHeader('Vorrat', null);
   const recipes = await Store.all();
   const p = await loadPantry();
+  const frozen = await freezerStems();
   let items = pantryItems(recipes, p);
   let filter = '';
 
   $view.innerHTML = `
+    ${await pantrySeg('vorrat')}
     <p class="meta" style="margin:0 0 10px">Hake an, was du <b>zuhause</b> hast. Die Liste bleibt gespeichert –
-      unten siehst du, was du damit kochen kannst.</p>
+      unten siehst du, was du damit kochen kannst${frozen.size ? ' (Tiefkühl-Produkte zählen automatisch mit)' : ''}.</p>
     <form class="shop-add" id="pAddForm">
       <input id="pInput" type="search" placeholder="Zutat suchen oder hinzufügen …" autocomplete="off" enterkeyhint="done">
       <button class="btn" type="submit" aria-label="Hinzufügen">+</button>
@@ -1062,7 +1067,7 @@ async function viewPantry() {
     }).join('') : `<li class="empty">${items.length ? 'Nichts gefunden – mit ＋ hinzufügen.' : 'Noch keine Zutaten.<br>Lege Rezepte an oder füge Zutaten mit ＋ hinzu.'}</li>`;
     const haveCount = items.filter(i => p.have.has(i.stem)).length;
     document.getElementById('pCount').textContent = `${haveCount} von ${items.length} zuhause`;
-    const m = pantryMatches(recipes, p.have);
+    const m = pantryMatches(recipes, new Set([...p.have, ...frozen]));
     const ok = m.filter(x => !x.missing.length).length;
     const near = m.filter(x => x.missing.length && x.missing.length <= 2).length;
     btn.textContent = ok ? `🍳 ${ok} ${ok === 1 ? 'Rezept' : 'Rezepte'} möglich${near ? ` · ${near} fast` : ''}`
@@ -1117,6 +1122,8 @@ async function viewPantryMatch() {
   setHeader('Was kann ich kochen?', '#/vorrat');
   const recipes = await Store.all();
   const p = await loadPantry();
+  const frozen = await freezerStems();
+  for (const s of frozen) p.have.add(s);
   const m = pantryMatches(recipes, p.have);
   const ok = m.filter(x => !x.missing.length);
   const near = m.filter(x => x.missing.length && x.missing.length <= 2);
@@ -1157,6 +1164,276 @@ async function viewPantryMatch() {
       b.textContent = '✓ Auf der Einkaufsliste';
     };
   });
+}
+
+/* =========================================================
+   Ansicht: Tiefkühl – was liegt im Gefrierschrank, seit wann, was mache ich daraus?
+   IndexedDB-Store `kv`, Schlüssel `freezer` = Liste von
+   { id, name, amount, cat, date: 'JJJJ-MM-TT', plan: { kind: 'recipe'|'idea', id?, text } | null, addedAt }
+   ========================================================= */
+const FREEZER_CATS = [
+  { key: 'fleisch', label: '🥩 Fleisch', months: 6 },
+  { key: 'gefluegel', label: '🍗 Geflügel', months: 6 },
+  { key: 'faschiertes', label: '🍔 Faschiertes', months: 3 },
+  { key: 'fisch', label: '🐟 Fisch', months: 4 },
+  { key: 'gemuese', label: '🥦 Gemüse', months: 12 },
+  { key: 'obst', label: '🍓 Obst', months: 12 },
+  { key: 'brot', label: '🍞 Brot & Gebäck', months: 3 },
+  { key: 'fertig', label: '🍲 Vorgekocht & Fertiges', months: 3 },
+  { key: 'sonst', label: '❄️ Sonstiges', months: 6 },
+];
+const FREEZER_GUESS = [
+  ['faschiertes', /faschiert|hack/],
+  ['gefluegel', /hendl|huhn|hühn|hähnchen|geflügel|pute|truthahn|ente|gans|chicken/],
+  ['fisch', /fisch|lachs|forelle|zander|kabeljau|dorsch|garnele|shrimp|scampi|calamar|tintenfisch|muschel|saibling|karpfen/],
+  ['fleisch', /fleisch|rind|schwein|kalb|lamm|wild|reh|hirsch|schnitzel|gulasch|kotelett|schopf|steak|braten|speck|wurst|würstel|leber|beuschel/],
+  ['obst', /beere|erdbeer|himbeer|heidelbeer|kirsch|marille|zwetsch|pflaume|apfel|birne|mango|obst|rhabarber/],
+  ['gemuese', /erbse|bohne|spinat|brokkoli|karfiol|blumenkohl|kohl|gemüse|mais|karotte|zucchini|paprika|kräuter|petersil|schnittlauch|zwiebel|kürbis|sprossen/],
+  ['brot', /brot|semmel|weckerl|gebäck|toast|baguette|croissant|kipferl|striezel|kuchen|teig/],
+  ['fertig', /suppe|sauce|soße|eintopf|gulaschsuppe|fond|brühe|pizza|lasagne|knödel|strudel|laibchen|nockerl|fertig|reste|portion/],
+];
+/* Ideen, falls im Rezeptbuch noch nichts Passendes ist (Stichwort → Vorschläge) */
+const FREEZER_IDEAS = [
+  [/faschiert|hack/, ['Spaghetti Bolognese', 'Fleischlaberl', 'Lasagne', 'Chili con Carne', 'Gefüllte Paprika']],
+  [/hendl|huhn|hühn|hähnchen|geflügel|pute/, ['Hühnersuppe', 'Backhendl', 'Hühnercurry mit Reis', 'Gebratene Hühnerbrust mit Gemüse']],
+  [/schnitzel/, ['Wiener Schnitzel', 'Pariser Schnitzel', 'Cordon bleu', 'Schnitzel-Semmel']],
+  [/rind|gulasch|tafelspitz/, ['Rindsgulasch', 'Rindsuppe', 'Tafelspitz', 'Geschmortes Rindfleisch']],
+  [/schwein|kotelett|schopf|bauch/, ['Schweinsbraten', 'Kotelett mit Erdäpfeln', 'Geschnetzeltes', 'Grillteller']],
+  [/speck/, ['Speckknödel', 'Carbonara', 'Kasnocken mit Speck', 'Bratkartoffeln mit Speck']],
+  [/wurst|würstel|leberkäs/, ['Würstel mit Senf und Gebäck', 'Wurstsalat', 'Linseneintopf mit Würstel', 'Bauernomelett']],
+  [/lachs/, ['Lachs mit Reis und Gemüse', 'Lachsnudeln mit Rahm', 'Lachs aus dem Ofen']],
+  [/fisch|forelle|zander|kabeljau|dorsch|saibling|karpfen/, ['Fisch aus dem Ofen mit Erdäpfeln', 'Gebackener Fisch', 'Fischcurry']],
+  [/garnele|shrimp|scampi/, ['Knoblauchgarnelen', 'Garnelenpasta', 'Gebratener Reis mit Garnelen']],
+  [/spinat/, ['Cremespinat mit Spiegelei und Erdäpfeln', 'Spinatknödel', 'Spinat-Lasagne']],
+  [/erbse/, ['Erbsenreis (Risi-Bisi)', 'Erbsensuppe', 'Als Beilage mit Butter']],
+  [/bohne|fisole/, ['Fisolengemüse', 'Bohneneintopf', 'Fisolensalat']],
+  [/brokkoli|karfiol|blumenkohl/, ['Gratiniert mit Käse', 'Cremesuppe', 'Gemüsepfanne']],
+  [/kräuter|petersil|schnittlauch/, ['In Suppe oder Sauce geben', 'Kräuterbutter', 'Ins Rührei']],
+  [/gemüse|mais|karotte|zucchini|paprika|kürbis/, ['Gemüsesuppe', 'Gemüsepfanne mit Reis', 'Gemüselaibchen', 'Ins Gulasch oder Chili']],
+  [/beere|erdbeer|himbeer|heidelbeer|kirsch|marille|zwetsch|obst|rhabarber/, ['Kompott oder Röster', 'Topfencreme mit Früchten', 'Smoothie', 'Obstkuchen oder Crumble']],
+  [/brot|semmel|weckerl|baguette|toast/, ['Aufbacken (ca. 10 Min. bei 180 °C)', 'Semmelknödel', 'Arme Ritter', 'Brotchips']],
+  [/teig|blätterteig|strudel/, ['Strudel (süß oder pikant)', 'Pizza', 'Blätterteigtaschen']],
+  [/suppe|sauce|soße|eintopf|fond|brühe/, ['Über Nacht im Kühlschrank auftauen und erwärmen', 'Als Basis für eine Sauce', 'Mit Einlage (Nudeln, Frittaten, Knödel)']],
+  [/knödel|nockerl|laibchen/, ['Als Beilage zum Braten', 'Geröstete Knödel mit Ei', 'Mit Salat als Hauptspeise']],
+  [/pizza|lasagne|fertig|reste|portion/, ['Einfach im Ofen aufwärmen', 'Mit frischem Salat servieren']],
+];
+const FREEZER_DEFAULT_IDEAS = ['Über Nacht im Kühlschrank auftauen und frisch verkochen', 'In einer Pfanne mit Gemüse',
+  'Als Suppeneinlage', 'Mit Reis oder Nudeln als schnelles Essen'];
+
+function todayISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function isoDate(s) { return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '')) ? s : todayISO(); }
+function fmtISO(s) { const [y, m, d] = isoDate(s).split('-'); return `${d}.${m}.${y}`; }
+function freezerCat(key) { return FREEZER_CATS.find(c => c.key === key) || FREEZER_CATS[FREEZER_CATS.length - 1]; }
+function guessFreezerCat(name) {
+  const t = String(name).toLowerCase();
+  const hit = FREEZER_GUESS.find(([, re]) => re.test(t));
+  return hit ? hit[0] : 'sonst';
+}
+/* Alter in Tagen + Ampel: ok / bald / alt (gemessen an der empfohlenen Lagerdauer) */
+function freezerAge(item) {
+  const [y, m, d] = isoDate(item.date).split('-').map(Number);
+  const days = Math.max(0, Math.floor((Date.now() - new Date(y, m - 1, d).getTime()) / 86400000));
+  const limit = freezerCat(item.cat).months * 30.4;
+  const level = days > limit ? 'alt' : days > limit * 0.75 ? 'bald' : 'ok';
+  let text;
+  if (days < 1) text = 'heute';
+  else if (days < 14) text = `${days} ${days === 1 ? 'Tag' : 'Tage'}`;
+  else if (days < 61) text = `${Math.round(days / 7)} Wochen`;
+  else text = `${Math.round(days / 30.4)} Monate`;
+  return { days, level, text, limitMonths: freezerCat(item.cat).months };
+}
+async function loadFreezer() {
+  const list = (await Store.getKV('freezer')) || [];
+  return Array.isArray(list) ? list.filter(x => x && x.id && x.name) : [];
+}
+async function saveFreezer(list) {
+  await Promise.all([Store.setKV('freezer', list), Store.setKV('freezerChangedAt', Date.now())]);
+}
+async function freezerStems() {
+  return new Set((await loadFreezer()).map(x => ingStem(x.name)));
+}
+async function pantrySeg(active) {
+  const n = (await loadFreezer()).length;
+  return `<div class="seg">
+    <a href="#/vorrat" class="${active === 'vorrat' ? 'active' : ''}">🧺 Vorrat</a>
+    <a href="#/tiefkuehl" class="${active === 'tk' ? 'active' : ''}">❄️ Tiefkühl${n ? ` <span class="badge">${n}</span>` : ''}</a>
+  </div>`;
+}
+/* Rezepte aus dem Buch, in denen das Produkt vorkommt */
+function freezerRecipes(item, recipes) {
+  const st = ingStem(item.name);
+  return recipes.filter(r => r.ingredients.some(line => ingNames(line).some(n => {
+    const s = ingStem(n);
+    return s === st || (st.length >= 4 && s.includes(st)) || (s.length >= 4 && st.includes(s));
+  })) || (st.length >= 4 && r.title.toLowerCase().includes(st)));
+}
+function freezerIdeas(item) {
+  const t = item.name.toLowerCase();
+  const hits = FREEZER_IDEAS.filter(([re]) => re.test(t)).flatMap(([, ideas]) => ideas);
+  return [...new Set(hits.length ? hits : FREEZER_DEFAULT_IDEAS)].slice(0, 6);
+}
+
+async function viewFreezer() {
+  setTab('pantry');
+  setHeader('Tiefkühl', null);
+  let list = await loadFreezer();
+  const seg = await pantrySeg('tk');
+
+  $view.innerHTML = `
+    ${seg}
+    <form id="fzAdd" class="panel fz-add">
+      <label for="fzName" style="margin-top:0">Neues Produkt einlagern</label>
+      <input id="fzName" placeholder="z. B. Faschiertes, Erbsen, Semmeln …" autocomplete="off" enterkeyhint="next" required>
+      <div class="row" style="margin-top:8px">
+        <input id="fzAmount" placeholder="Menge (z. B. 500 g)" autocomplete="off">
+        <input id="fzDate" type="date" value="${todayISO()}" aria-label="Einlagerungsdatum">
+      </div>
+      <button class="btn block" type="submit" style="margin-top:10px">❄️ Einlagern</button>
+    </form>
+    <p class="meta stamp" id="fzInfo"></p>
+    <ul class="fz-list" id="fzList"></ul>`;
+
+  const ul = document.getElementById('fzList');
+  const draw = () => {
+    const sorted = [...list].sort((a, b) => isoDate(a.date).localeCompare(isoDate(b.date)) || a.name.localeCompare(b.name, 'de'));
+    const old = sorted.filter(x => freezerAge(x).level !== 'ok').length;
+    document.getElementById('fzInfo').textContent = list.length
+      ? `${list.length} ${list.length === 1 ? 'Produkt' : 'Produkte'} · älteste zuerst${old ? ` · ${old} bald verbrauchen` : ''}` : '';
+    ul.innerHTML = sorted.length ? sorted.map(x => {
+      const a = freezerAge(x);
+      const cat = freezerCat(x.cat);
+      return `<li><a class="fz-item" href="#/tiefkuehl/${esc(encodeURIComponent(x.id))}">
+        <span class="fz-icon">${cat.label.split(' ')[0]}</span>
+        <span class="fz-body">
+          <span class="fz-name">${esc(x.name)}${x.amount ? ` <span class="meta">· ${esc(x.amount)}</span>` : ''}</span>
+          <span class="meta">eingelagert ${fmtISO(x.date)}</span>
+          ${x.plan ? `<span class="fz-plan">📌 ${esc(x.plan.text)}</span>` : '<span class="fz-hint">💡 Verwendung auswählen</span>'}
+        </span>
+        <span class="age age-${a.level}">${a.text}</span>
+      </a></li>`;
+    }).join('') : `<li class="empty"><div class="big">❄️</div>Noch nichts eingelagert.<br>
+      Trag oben ein, was in den Tiefkühler kommt.</li>`;
+  };
+  draw();
+
+  document.getElementById('fzAdd').onsubmit = async e => {
+    e.preventDefault();
+    const nameEl = document.getElementById('fzName');
+    const name = nameEl.value.trim();
+    if (!name) return;
+    const item = {
+      id: uid(), name: name.charAt(0).toUpperCase() + name.slice(1),
+      amount: document.getElementById('fzAmount').value.trim(),
+      cat: guessFreezerCat(name), date: isoDate(document.getElementById('fzDate').value),
+      plan: null, addedAt: Date.now(),
+    };
+    list.push(item);
+    await saveFreezer(list);
+    nameEl.value = ''; document.getElementById('fzAmount').value = '';
+    document.getElementById('fzDate').value = todayISO();
+    toast(`„${item.name}“ eingelagert`);
+    draw();
+  };
+}
+
+async function viewFreezerItem(id) {
+  setTab('pantry');
+  setHeader('Tiefkühl-Produkt', '#/tiefkuehl');
+  let list = await loadFreezer();
+  const item = list.find(x => x.id === id);
+  if (!item) { location.hash = '#/tiefkuehl'; return; }
+  const recipes = (await Store.all()).sort((a, b) => a.title.localeCompare(b.title, 'de'));
+
+  const save = async () => { await saveFreezer(list); };
+  const draw = () => {
+    const a = freezerAge(item);
+    const found = freezerRecipes(item, recipes);
+    const ideas = freezerIdeas(item);
+    const isPlan = (kind, key) => item.plan && item.plan.kind === kind && (kind === 'recipe' ? item.plan.id === key : item.plan.text === key);
+    $view.innerHTML = `
+      <div class="panel">
+        <label for="eName" style="margin-top:0">Produkt</label>
+        <input id="eName" value="${esc(item.name)}" autocomplete="off">
+        <div class="row">
+          <div><label for="eAmount">Menge</label><input id="eAmount" value="${esc(item.amount || '')}" placeholder="z. B. 500 g" autocomplete="off"></div>
+          <div><label for="eDate">Eingelagert am</label><input id="eDate" type="date" value="${isoDate(item.date)}"></div>
+        </div>
+        <label for="eCat">Art</label>
+        <select id="eCat">${FREEZER_CATS.map(c => `<option value="${c.key}" ${c.key === item.cat ? 'selected' : ''}>${c.label}</option>`).join('')}</select>
+        <p class="age-line age-${a.level}">
+          ${a.level === 'alt' ? '⚠️ Schon länger als empfohlen eingefroren' : a.level === 'bald' ? '⏳ Bald verbrauchen' : '✓ Gut haltbar'}
+          · ${a.days < 1 ? 'heute eingefroren' : a.text + ' eingefroren'} · empfohlen bis ca. ${a.limitMonths} Monate</p>
+      </div>
+
+      <h3 class="section-title">💡 Was mache ich daraus?</h3>
+      <p class="meta" style="margin:0 0 8px">Tippe auf einen Vorschlag, um ihn als Plan zu merken.</p>
+      ${item.plan ? `<div class="panel fz-current">📌 Geplant: <b>${esc(item.plan.text)}</b>
+        ${item.plan.kind === 'recipe' ? `<a class="text-btn" href="#/rezept/${esc(encodeURIComponent(item.plan.id))}">Rezept öffnen ›</a>` : ''}
+        <button class="text-btn" id="planClear">Plan entfernen</button></div>` : ''}
+      ${found.length ? `<p class="random-label">Aus deinem Rezeptbuch</p>
+        <ul class="sugg">${found.map(r => `<li><button class="sugg-btn${isPlan('recipe', r.id) ? ' on' : ''}" data-recipe="${esc(r.id)}">
+          📖 ${esc(r.title)}<span class="meta">${esc(r.category || '')}</span></button></li>`).join('')}</ul>` : ''}
+      <p class="random-label">Ideen</p>
+      <ul class="sugg">${ideas.map(t => `<li><button class="sugg-btn${isPlan('idea', t) ? ' on' : ''}" data-idea="${esc(t)}">💡 ${esc(t)}</button></li>`).join('')}</ul>
+      <form class="shop-add" id="ownIdea" style="margin-top:10px">
+        <input id="ownIdeaText" placeholder="Eigene Idee …" autocomplete="off" enterkeyhint="done">
+        <button class="btn" type="submit" aria-label="Als Plan merken">+</button>
+      </form>
+
+      <div class="actions">
+        <button class="btn" id="usedUp">✓ Aufgebraucht – aus dem Tiefkühler nehmen</button>
+      </div>`;
+
+    const field = (elId, key, fn = v => v.trim()) => {
+      document.getElementById(elId).onchange = async e => {
+        const v = fn(e.target.value);
+        if (key === 'name' && !v) { e.target.value = item.name; return; }
+        item[key] = v;
+        await save();
+        if (key !== 'amount') draw();
+        toast('Gespeichert');
+      };
+    };
+    field('eName', 'name', v => { v = v.trim(); return v && v.charAt(0).toUpperCase() + v.slice(1); });
+    field('eAmount', 'amount');
+    field('eDate', 'date', isoDate);
+    field('eCat', 'cat', v => v);
+
+    $view.querySelectorAll('[data-recipe]').forEach(b => {
+      b.onclick = async () => {
+        const r = recipes.find(x => x.id === b.dataset.recipe);
+        item.plan = isPlan('recipe', r.id) ? null : { kind: 'recipe', id: r.id, text: r.title };
+        await save(); draw();
+      };
+    });
+    $view.querySelectorAll('[data-idea]').forEach(b => {
+      b.onclick = async () => {
+        const t = b.dataset.idea;
+        item.plan = isPlan('idea', t) ? null : { kind: 'idea', text: t };
+        await save(); draw();
+      };
+    });
+    const clear = document.getElementById('planClear');
+    if (clear) clear.onclick = async () => { item.plan = null; await save(); draw(); };
+    document.getElementById('ownIdea').onsubmit = async e => {
+      e.preventDefault();
+      const t = document.getElementById('ownIdeaText').value.trim();
+      if (!t) return;
+      item.plan = { kind: 'idea', text: t };
+      await save(); draw();
+    };
+    document.getElementById('usedUp').onclick = async () => {
+      if (!confirm(`„${item.name}“ aus dem Tiefkühler nehmen?`)) return;
+      list = list.filter(x => x !== item);
+      await save();
+      toast(`„${item.name}“ entfernt`);
+      location.hash = '#/tiefkuehl';
+    };
+  };
+  draw();
 }
 
 /* =========================================================

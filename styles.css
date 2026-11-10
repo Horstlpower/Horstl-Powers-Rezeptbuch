@@ -230,6 +230,55 @@ label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
 .match .card:only-child { border-radius: 14px; }
 .match .shop-missing:disabled { color: var(--muted); }
 
+/* ---------- Vorrat / Tiefkühl umschalten ---------- */
+.seg { display: flex; gap: 4px; padding: 4px; margin-bottom: 12px; background: var(--chip); border-radius: 12px; }
+.seg a {
+  flex: 1; text-align: center; padding: 9px 6px; border-radius: 9px;
+  text-decoration: none; color: var(--text); font-weight: 600; font-size: 15px;
+}
+.seg a.active { background: var(--surface); color: var(--accent); box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+.badge {
+  display: inline-block; min-width: 20px; padding: 0 6px; margin-left: 2px; border-radius: 999px;
+  background: var(--accent); color: var(--accent-ink); font-size: 12px; line-height: 20px;
+}
+
+/* ---------- Tiefkühl ---------- */
+.fz-add input[type="date"] { min-height: 44px; }
+.fz-list { list-style: none; padding: 0; margin: 8px 0 0; display: grid; gap: 10px; }
+.fz-item {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  text-decoration: none; color: inherit;
+}
+.fz-icon { flex: none; width: 40px; height: 40px; border-radius: 10px; background: var(--chip);
+  display: flex; align-items: center; justify-content: center; font-size: 22px; }
+.fz-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fz-name { font-weight: 600; }
+.fz-plan { font-size: 13px; color: var(--accent); margin-top: 2px; }
+.fz-hint { font-size: 13px; color: var(--muted); margin-top: 2px; }
+.age { flex: none; font-size: 12px; font-weight: 700; padding: 4px 8px; border-radius: 999px; white-space: nowrap; }
+.age-ok { background: #e3f1e4; color: #2e6b33; }
+.age-bald { background: #fdf0d5; color: #8a5a00; }
+.age-alt { background: #fbe1df; color: #a1261e; }
+@media (prefers-color-scheme: dark) {
+  .age-ok { background: #24372a; color: #9fd6a5; }
+  .age-bald { background: #3d321c; color: #f2c56b; }
+  .age-alt { background: #43221f; color: #f2a39b; }
+}
+p.age-line { margin: 14px 0 0; padding: 8px 10px; border-radius: 10px; font-size: 14px; font-weight: 600; }
+select { min-height: 44px; }
+.sugg { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.sugg-btn {
+  width: 100%; text-align: left; display: flex; flex-direction: column; gap: 2px;
+  padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--surface); color: var(--text); font: inherit; cursor: pointer;
+}
+.sugg-btn .meta { font-size: 13px; }
+.sugg-btn.on { border-color: var(--accent); background: var(--chip); font-weight: 600; box-shadow: inset 0 0 0 1px var(--accent); }
+.sugg-btn.on::after { content: "📌 als Plan gemerkt"; font-size: 12px; color: var(--accent); }
+.fz-current { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; }
+.fz-current b { color: var(--accent); }
+
 /* ---------- Mehr ---------- */
 .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 16px; margin-bottom: 14px; }
 .panel h3 { margin: 0 0 6px; font-size: 17px; }

@@ -11,6 +11,8 @@ die Rezepte bleiben auf dem eigenen Gerät.
   (mit Datumsstempel)
 - Vorrat: abhaken, was zuhause ist (bleibt gespeichert) – die App schlägt vor, was du damit kochen kannst,
   und setzt Fehlendes auf Wunsch auf die Einkaufsliste
+- Tiefkühl: Produkte mit Einlagerungsdatum, Ampel für die Lagerdauer, je Produkt Verwendungsvorschläge
+  (aus dem Rezeptbuch oder Ideen) als Plan auswählbar
 - Rezepte teilen
 - „Was koche ich heute?“ – Zufallsrezept auf der Startseite mit Grobauswahl (Fleisch, Fisch, Kartoffel, Nudeln, Reis, Vegetarisch, Suppe, Süßes)
 - Eigenes Hintergrundfoto für die Startseite aus der Mediathek

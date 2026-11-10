@@ -16,7 +16,7 @@ alle Texte in der App und alle Antworten auf Deutsch.
 - `index.html` – Grundgerüst, Kopfzeile, Tableiste
 - `app.js` – gesamte Logik: Datenbank, Router (Hash-Routen `#/`, `#/rezept/<id>`, `#/neu`,
   `#/bearbeiten/<id>`, `#/favoriten`, `#/einkauf`, `#/einkauf/auswahl`,
-  `#/einkauf/rezept/<id>?p=<portionen>&von=rezept`, `#/vorrat`, `#/vorrat/kochen`, `#/mehr`), Ansichten, Mengen-Umrechnung,
+  `#/einkauf/rezept/<id>?p=<portionen>&von=rezept`, `#/vorrat`, `#/vorrat/kochen`, `#/tiefkuehl`, `#/tiefkuehl/<id>`, `#/mehr`), Ansichten, Mengen-Umrechnung,
   Export/Import, Beispielrezept
 - `styles.css` – Gestaltung, heller und dunkler Modus
 - `sw.js` – Service Worker für Offline-Betrieb
@@ -34,6 +34,10 @@ Vorrat: Store `kv`, Schlüssel `pantry` = `{ have: [Wortstamm], extra: [Name], c
 Rezepten erzeugt plus feste Grundliste `BASE_PANTRY` (vom Nutzer vorgegeben). `ingNames()` entfernt Menge/Einheit,
 `ingStem()` macht Ei/Eier gleich und führt gleichbedeutende Namen über `ING_ALIASES` zusammen
 (österreichisch: Rahm=Sahne, Germ=Hefe, Faschiertes=Hackfleisch, Gurkerl=Essiggurken). Abgleich in `pantryMatches()`.
+Tiefkühl (im Vorrat-Reiter umschaltbar): Store `kv`, Schlüssel `freezer` = Liste von
+`{ id, name, amount, cat, date: 'JJJJ-MM-TT', plan: { kind: 'recipe'|'idea', id?, text } | null, addedAt }`.
+Arten + empfohlene Lagermonate in `FREEZER_CATS`, Ideen in `FREEZER_IDEAS`. Tiefkühl-Produkte zählen beim
+„Was kann ich kochen?“ automatisch als vorhanden.
 Hintergrundfoto: nicht Teil des Exports. Auswahl nur im Mehr-Tab (nicht auf der Startseite, damit sie aufgeräumt bleibt).
 Ablauf Einkauf: Rezept wählen → abhaken, was zuhause ist → Rest kommt auf die Liste (keine Doppelten).
 
