@@ -241,18 +241,27 @@ body.home .topbar {
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
 }
 body.home .topbar .icon-btn { color: #fff; }
-.home-hero { position: relative; padding: 28px 0 22px; color: #fff; text-align: center; }
+.home-hero { position: relative; padding: 32px 0 26px; color: #fff; text-align: center; }
 .home-name {
   margin: 0; font-size: 34px; line-height: 1.1; font-weight: 800; letter-spacing: .3px;
   text-shadow: 0 2px 12px rgba(0,0,0,.55);
 }
 .home-name span { display: block; font-size: 22px; font-weight: 600; margin-top: 4px; opacity: .95; }
-.bg-pick {
-  display: inline-flex; align-items: center; gap: 6px; margin: 14px 0 0;
-  padding: 6px 14px; border-radius: 999px; cursor: pointer;
-  background: rgba(0,0,0,.35); color: #fff; font-size: 13px; font-weight: 600;
-  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+.random-btn {
+  margin-top: 16px; padding: 10px 18px; border: 0; border-radius: 999px; cursor: pointer;
+  background: var(--surface); color: var(--accent); font: inherit; font-weight: 700;
+  box-shadow: 0 4px 14px rgba(0,0,0,.25);
 }
+.random-btn:active { transform: scale(.97); }
+.random-panel { margin-bottom: 12px; }
+.random-head { display: flex; align-items: center; justify-content: space-between; }
+.random-head h3 { margin: 0; }
+.mood-chips { flex-wrap: wrap; overflow: visible; margin: 0; padding: 10px 0 4px; }
+.mood-chips .chip { padding: 7px 12px; }
+.mood-chips .chip:disabled { opacity: .4; cursor: default; }
+body.home .mood-chips .chip:not(.active) { background: var(--chip); }
+.random-label { margin: 12px 0 6px; font-weight: 600; color: var(--muted); font-size: 14px; }
+.icon-btn.small { font-size: 18px; min-width: 36px; height: 36px; color: var(--muted); }
 body.home .chip:not(.active) { background: var(--surface); }
 body.home .empty.panel { padding: 32px 16px; color: var(--muted); }
 

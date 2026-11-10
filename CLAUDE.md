@@ -28,7 +28,9 @@ photo (data:image/jpeg;base64,…), favorite, createdAt, updatedAt }` – siehe 
 Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, text, from, done, addedAt }`
 (`addedAt` = Datumsstempel, fehlt bei alten Einträgen), Schlüssel `shoppingChangedAt` = „Stand“ der Liste.
 Hintergrundfoto der Startseite: Store `kv`, Schlüssel `bgPhoto` (data-URL, leer = Standard-Verlauf).
-Nicht Teil des Exports. Auswahl auf der Startseite („Hintergrund“) oder im Mehr-Tab.
+„Was koche ich heute?“ (Startseite): Grobauswahl `MOODS` in `app.js`, erkannt über Stichwörter
+(`MOOD_WORDS`) in Titel und Zutaten – kein eigenes Rezeptfeld. Neue Stichwörter dort ergänzen.
+Hintergrundfoto: nicht Teil des Exports. Auswahl nur im Mehr-Tab (nicht auf der Startseite, damit sie aufgeräumt bleibt).
 Ablauf Einkauf: Rezept wählen → abhaken, was zuhause ist → Rest kommt auf die Liste (keine Doppelten).
 
 ## Bei Änderungen beachten

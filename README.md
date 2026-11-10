@@ -10,6 +10,7 @@ die Rezepte bleiben auf dem eigenen Gerät.
 - Einkaufsliste – Rezept wählen, abhaken was zuhause ist, der Rest kommt auf die Liste
   (mit Datumsstempel)
 - Rezepte teilen
+- „Was koche ich heute?“ – Zufallsrezept auf der Startseite mit Grobauswahl (Fleisch, Fisch, Kartoffel, Nudeln, Reis, Vegetarisch, Suppe, Süßes)
 - Eigenes Hintergrundfoto für die Startseite aus der Mediathek
 - Export/Import als Datei – zum Sichern und Übertragen auf andere Geräte
 

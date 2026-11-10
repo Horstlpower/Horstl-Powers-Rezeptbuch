@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.4.0';
 const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
@@ -247,12 +247,95 @@ function bindBgInput(input) {
     if (file) await setBackground(file);
   };
 }
-function homeHero() {
+function homeHero(withRandom) {
   return `<section class="home-hero">
     <h2 class="home-name">Horstl-Powers<span>Rezeptbuch</span></h2>
-    <label class="bg-pick">🖼️ Hintergrund
-      <input type="file" accept="image/*" class="bgFile" hidden></label>
-  </section>`;
+    ${withRandom ? '<button class="random-btn" id="randomBtn">🎲 Was koche ich heute?</button>' : ''}
+  </section>
+  <div id="randomPick"></div>`;
+}
+
+/* „Was koche ich heute?“ – Grobauswahl nach Hauptzutat.
+   Erkannt wird über Stichwörter in Titel und Zutaten (kein eigenes Feld im Rezept).
+   `start` = Stichwort muss am Wortanfang stehen, `any` = darf auch mitten im Wort stehen. */
+const MOOD_WORDS = {
+  fleisch: {
+    any: ['fleisch', 'schnitzel', 'gulasch', 'wurst', 'würstel', 'speck', 'schinken', 'hähnchen', 'hendl',
+      'huhn', 'hühner', 'geflügel', 'steak', 'frikadell', 'leberkäs', 'bacon', 'salami', 'kotelett', 'roulade'],
+    start: ['rind', 'schwein', 'hack', 'kalb', 'lamm', 'pute', 'ente', 'gans', 'wild', 'reh', 'hirsch', 'chicken', 'beef'],
+  },
+  fisch: {
+    any: ['fisch', 'lachs', 'forelle', 'thunfisch', 'kabeljau', 'zander', 'garnele', 'shrimp', 'scampi',
+      'meeresfrücht', 'hering', 'makrele', 'sardin', 'muschel', 'tintenfisch', 'calamar', 'karpfen', 'saibling'],
+    start: ['dorsch', 'seelachs', 'scholle', 'barsch'],
+  },
+  kartoffel: { any: ['kartoffel', 'erdäpfel', 'erdapfel', 'pommes', 'rösti', 'gnocchi', 'reiberdatschi', 'kartoffelknödel'], start: [] },
+  nudeln: {
+    any: ['nudel', 'spaghetti', 'pasta', 'penne', 'lasagne', 'spätzle', 'tagliatelle', 'makkaroni', 'maccheroni',
+      'fusilli', 'farfalle', 'rigatoni', 'tortellini', 'ravioli', 'linguine', 'fettuccine', 'cannelloni', 'schupfnudel'],
+    start: [],
+  },
+  reis: { any: ['risotto', 'paella', 'basmati', 'jasminreis', 'milchreis'], start: ['reis'] },
+};
+const MOODS = [
+  { key: 'egal', label: '🎲 Egal', test: () => true },
+  { key: 'fleisch', label: '🥩 Fleisch', test: r => moodHit(r, 'fleisch') },
+  { key: 'fisch', label: '🐟 Fisch', test: r => moodHit(r, 'fisch') },
+  { key: 'kartoffel', label: '🥔 Kartoffel', test: r => moodHit(r, 'kartoffel') },
+  { key: 'nudeln', label: '🍝 Nudeln', test: r => moodHit(r, 'nudeln') },
+  { key: 'reis', label: '🍚 Reis', test: r => moodHit(r, 'reis') },
+  { key: 'vegetarisch', label: '🥦 Vegetarisch', test: r => !isSweet(r) && !moodHit(r, 'fleisch') && !moodHit(r, 'fisch') },
+  { key: 'suppe', label: '🍲 Suppe & Eintopf', test: r => r.category === 'Suppe' || /suppe|eintopf/.test(r.title.toLowerCase()) },
+  { key: 'suess', label: '🍰 Süßes', test: isSweet },
+];
+const moodCache = new WeakMap();
+function moodText(r) {
+  if (!moodCache.has(r)) moodCache.set(r, ' ' + [r.title, ...r.ingredients].join(' \n ').toLowerCase());
+  return moodCache.get(r);
+}
+function moodHit(r, key) {
+  const t = moodText(r), w = MOOD_WORDS[key];
+  return w.any.some(k => t.includes(k)) || w.start.some(k => new RegExp('[^a-zäöüß]' + k).test(t));
+}
+function isSweet(r) { return r.category === 'Dessert' || r.category === 'Kuchen & Gebäck'; }
+
+let lastRandomId = null;
+let randomMood = 'egal';
+function showRandom(all) {
+  const box = document.getElementById('randomPick');
+  const cookable = all.filter(r => r.category !== 'Getränk');
+  const counts = Object.fromEntries(MOODS.map(m => [m.key, cookable.filter(m.test).length]));
+  if (!counts[randomMood]) randomMood = 'egal';
+  const mood = MOODS.find(m => m.key === randomMood);
+  const pool = cookable.filter(mood.test);
+
+  let result;
+  if (!pool.length) {
+    result = '<p class="meta" style="margin:10px 0 0">Noch keine passenden Rezepte.</p>';
+  } else {
+    const choices = pool.length > 1 ? pool.filter(r => r.id !== lastRandomId) : pool;
+    const r = choices[Math.floor(Math.random() * choices.length)];
+    lastRandomId = r.id;
+    result = `<p class="random-label">Heute gibt's …</p>
+      <ul class="cards" style="margin:0">${card(r)}</ul>
+      ${pool.length > 1 ? '<button class="btn secondary block" id="randomAgain" style="margin-top:10px">🎲 Nochmal würfeln</button>' : ''}`;
+  }
+
+  box.innerHTML = `<div class="panel random-panel">
+    <div class="random-head">
+      <h3>Worauf hast du Lust?</h3>
+      <button class="icon-btn small" id="randomClose" aria-label="Schließen">✕</button>
+    </div>
+    <div class="chips mood-chips">${MOODS.map(m => `<button class="chip${m.key === randomMood ? ' active' : ''}"
+      data-mood="${m.key}" ${counts[m.key] ? '' : 'disabled'}>${m.label}</button>`).join('')}</div>
+    ${result}
+  </div>`;
+  document.getElementById('randomClose').onclick = () => { box.innerHTML = ''; };
+  box.querySelectorAll('[data-mood]').forEach(b => {
+    b.onclick = () => { randomMood = b.dataset.mood; showRandom(all); };
+  });
+  const again = document.getElementById('randomAgain');
+  if (again) again.onclick = () => showRandom(all);
 }
 
 async function viewList(favOnly) {
@@ -261,11 +344,10 @@ async function viewList(favOnly) {
     '<button class="icon-btn" id="addBtn" aria-label="Neues Rezept">＋</button>');
   document.getElementById('addBtn').onclick = () => { location.hash = '#/neu'; };
   if (!favOnly) document.body.classList.add('home');
-  const hero = favOnly ? '' : homeHero();
-
   let all = await Store.all();
   if (favOnly) all = all.filter(r => r.favorite);
   all.sort((a, b) => a.title.localeCompare(b.title, 'de'));
+  const hero = favOnly ? '' : homeHero(all.length > 0);
 
   if (!all.length) {
     if (favOnly) {
@@ -276,7 +358,6 @@ async function viewList(favOnly) {
         <p>Noch keine Rezepte.</p>
         <button class="btn" id="firstBtn">Erstes Rezept anlegen</button>
         <p style="margin-top:12px"><button class="btn secondary" id="sampleBtn">Beispielrezept laden</button></p></div>`;
-      $view.querySelectorAll('.bgFile').forEach(bindBgInput);
       document.getElementById('firstBtn').onclick = () => { location.hash = '#/neu'; };
       document.getElementById('sampleBtn').onclick = async () => {
         await Store.put(normalize(SAMPLE));
@@ -306,7 +387,8 @@ async function viewList(favOnly) {
       ? list.map(r => card(r)).join('')
       : '<li class="empty panel">Nichts gefunden.</li>';
   };
-  $view.querySelectorAll('.bgFile').forEach(bindBgInput);
+  const randomBtn = document.getElementById('randomBtn');
+  if (randomBtn) randomBtn.onclick = () => showRandom(all);
   document.getElementById('q').addEventListener('input', e => { state.q = e.target.value; draw(); });
   $view.querySelectorAll('.chip').forEach(b => {
     b.onclick = () => {
