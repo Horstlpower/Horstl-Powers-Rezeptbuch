@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.0.3';
+const APP_VERSION = '1.1.0';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
 
@@ -175,7 +175,9 @@ function scaleLine(line, factor) {
    Router
    ========================================================= */
 async function route() {
-  const parts = location.hash.replace(/^#/, '').split('/').filter(Boolean);
+  const [path, query = ''] = location.hash.replace(/^#/, '').split('?');
+  const parts = path.split('/').filter(Boolean);
+  const params = new URLSearchParams(query);
   window.scrollTo(0, 0);
   try {
     if (!parts.length) return await viewList(false);
@@ -184,7 +186,10 @@ async function route() {
       case 'rezept': return await viewDetail(decodeURIComponent(parts[1] || ''));
       case 'neu': return await viewEdit(null);
       case 'bearbeiten': return await viewEdit(decodeURIComponent(parts[1] || ''));
-      case 'einkauf': return await viewShopping();
+      case 'einkauf':
+        if (parts[1] === 'auswahl') return await viewPickRecipe();
+        if (parts[1] === 'rezept') return await viewShopCheck(decodeURIComponent(parts[2] || ''), params);
+        return await viewShopping();
       case 'mehr': return await viewMore();
       default: location.hash = '#/';
     }
@@ -197,10 +202,10 @@ async function route() {
 /* =========================================================
    Ansicht: Rezeptliste / Favoriten
    ========================================================= */
-function card(r) {
+function card(r, href) {
   const img = safeImg(r.photo);
   const meta = [r.category, r.time].filter(Boolean).join(' · ');
-  return `<li><a class="card" href="#/rezept/${encodeURIComponent(r.id)}">
+  return `<li><a class="card" href="${esc(href || '#/rezept/' + encodeURIComponent(r.id))}">
     ${img ? `<img class="thumb" src="${esc(img)}" alt="" loading="lazy">` : '<div class="thumb">🍽️</div>'}
     <div class="card-body">
       <div class="card-title">${esc(r.title)}</div>
@@ -255,7 +260,7 @@ async function viewList(favOnly) {
       (state.cat === 'Alle' || r.category === state.cat) &&
       (!q || [r.title, r.category, r.ingredients.join(' '), r.notes].join(' ').toLowerCase().includes(q)));
     document.getElementById('cards').innerHTML = list.length
-      ? list.map(card).join('')
+      ? list.map(r => card(r)).join('')
       : '<li class="empty">Nichts gefunden.</li>';
   };
   document.getElementById('q').addEventListener('input', e => { state.q = e.target.value; draw(); });
@@ -350,11 +355,9 @@ async function viewDetail(id) {
   document.getElementById('editBtn').onclick = () => { location.hash = '#/bearbeiten/' + encodeURIComponent(id); };
 
   const toShop = document.getElementById('toShop');
-  if (toShop) toShop.onclick = async () => {
-    const items = (await Store.getKV('shopping')) || [];
-    r.ingredients.forEach(line => items.push({ id: uid(), text: scaleLine(line, factor()), from: r.title, done: false }));
-    await Store.setKV('shopping', items);
-    toast(`${r.ingredients.length} Zutaten auf die Einkaufsliste gesetzt`);
+  // Weiter zur Abhak-Ansicht: dort wird markiert, was schon zuhause ist
+  if (toShop) toShop.onclick = () => {
+    location.hash = `#/einkauf/rezept/${encodeURIComponent(id)}?p=${servings || ''}&von=rezept`;
   };
 
   document.getElementById('shareBtn').onclick = () => {
@@ -540,17 +543,142 @@ async function viewEdit(id) {
 /* =========================================================
    Ansicht: Einkaufsliste
    ========================================================= */
+function fmtDate(ts, withTime) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  const date = d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return withTime ? date + ', ' + d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' }) + ' Uhr' : date;
+}
+
+/* Schritt 1: Rezept auswählen */
+async function viewPickRecipe() {
+  setTab('shop');
+  setHeader('Rezept auswählen', '#/einkauf');
+  const all = (await Store.all())
+    .filter(r => r.ingredients.length)
+    .sort((a, b) => (b.favorite - a.favorite) || a.title.localeCompare(b.title, 'de'));
+  if (!all.length) {
+    $view.innerHTML = `<div class="empty"><div class="big">📖</div>
+      <p>Noch keine Rezepte mit Zutaten vorhanden.</p></div>`;
+    return;
+  }
+  $view.innerHTML = `
+    <p class="meta" style="margin:0 0 10px">Wähle ein Rezept. Danach hakst du ab, was du schon zuhause hast.</p>
+    <div class="search"><input id="pq" type="search" placeholder="Rezept suchen …" autocomplete="off" enterkeyhint="search"></div>
+    <ul class="cards" id="pcards"></ul>`;
+  const pq = document.getElementById('pq');
+  const draw = () => {
+    const q = pq.value.trim().toLowerCase();
+    const list = all.filter(r => !q || (r.title + ' ' + r.category).toLowerCase().includes(q));
+    document.getElementById('pcards').innerHTML = list.length
+      ? list.map(r => card(r, '#/einkauf/rezept/' + encodeURIComponent(r.id))).join('')
+      : '<li class="empty">Nichts gefunden.</li>';
+  };
+  pq.addEventListener('input', draw);
+  draw();
+}
+
+/* Schritt 2: abhaken, was zuhause ist – der Rest kommt auf die Liste */
+async function viewShopCheck(id, params) {
+  setTab('shop');
+  const r = await Store.get(id);
+  if (!r || !r.ingredients.length) { location.hash = '#/einkauf'; return; }
+  const fromRecipe = params.get('von') === 'rezept';
+  setHeader('Was ist zuhause?', fromRecipe ? '#/rezept/' + encodeURIComponent(id) : '#/einkauf/auswahl');
+
+  const base = r.servings || 0;
+  let servings = Math.max(1, Math.min(100, parseInt(params.get('p'), 10) || base || 1));
+  const factor = () => (base ? servings / base : 1);
+  const have = new Set();
+
+  $view.innerHTML = `
+    <div class="detail">
+      <h2>${esc(r.title)}</h2>
+      <p class="meta" style="margin:4px 0 0">Tippe an, was du <b>schon zuhause</b> hast.
+        Alles andere kommt auf die Einkaufsliste.</p>
+      ${base ? `<div class="stepper">
+          <button id="minus" aria-label="Weniger Portionen">−</button>
+          <span id="srv"></span>
+          <button id="plus" aria-label="Mehr Portionen">+</button>
+        </div>` : ''}
+      <div class="list-tools">
+        <button class="text-btn" id="allHave">Alles zuhause</button>
+        <button class="text-btn" id="noneHave">Nichts zuhause</button>
+      </div>
+      <ul class="ings check" id="ings"></ul>
+    </div>
+    <div class="sticky-bar"><button class="btn block" id="addMissing"></button></div>`;
+
+  const ul = document.getElementById('ings');
+  const btn = document.getElementById('addMissing');
+  const draw = () => {
+    ul.innerHTML = r.ingredients.map((line, i) => `
+      <li data-i="${i}" class="${have.has(i) ? 'have' : ''}">
+        <span class="t">${esc(scaleLine(line, factor()))}</span>
+        ${have.has(i) ? '<span class="tag">zuhause</span>' : ''}
+      </li>`).join('');
+    const srv = document.getElementById('srv');
+    if (srv) srv.textContent = `${servings} ${servings === 1 ? 'Portion' : 'Portionen'}`;
+    const n = r.ingredients.length - have.size;
+    btn.disabled = n === 0;
+    btn.textContent = n ? `🛒 ${n} ${n === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste` : 'Alles zuhause – nichts zu kaufen';
+  };
+  draw();
+
+  ul.onclick = e => {
+    const li = e.target.closest('li[data-i]');
+    if (!li) return;
+    const i = Number(li.dataset.i);
+    have.has(i) ? have.delete(i) : have.add(i);
+    draw();
+  };
+  document.getElementById('allHave').onclick = () => { r.ingredients.forEach((_, i) => have.add(i)); draw(); };
+  document.getElementById('noneHave').onclick = () => { have.clear(); draw(); };
+  if (base) {
+    document.getElementById('minus').onclick = () => { if (servings > 1) { servings--; draw(); } };
+    document.getElementById('plus').onclick = () => { if (servings < 100) { servings++; draw(); } };
+  }
+
+  btn.onclick = async () => {
+    btn.disabled = true;
+    const items = (await Store.getKV('shopping')) || [];
+    const now = Date.now();
+    let added = 0;
+    r.ingredients.forEach((line, i) => {
+      if (have.has(i)) return;
+      const text = scaleLine(line, factor());
+      // nicht doppelt eintragen, wenn es schon offen auf der Liste steht
+      if (items.some(x => !x.done && x.text === text && x.from === r.title)) return;
+      items.push({ id: uid(), text, from: r.title, done: false, addedAt: now });
+      added++;
+    });
+    await Promise.all([Store.setKV('shopping', items), Store.setKV('shoppingChangedAt', now)]);
+    const skipped = r.ingredients.length - have.size - added;
+    toast(!added ? 'Steht schon alles auf der Einkaufsliste'
+      : `${added} ${added === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste gesetzt` +
+        (skipped ? ` (${skipped} stand${skipped === 1 ? '' : 'en'} schon drauf)` : ''));
+    location.hash = '#/einkauf';
+  };
+}
+
+/* Die Einkaufsliste selbst */
 async function viewShopping() {
   setTab('shop');
   setHeader('Einkaufsliste', null, '<button class="icon-btn" id="shareShop" aria-label="Liste teilen">⇪</button>');
   let items = (await Store.getKV('shopping')) || [];
-  const save = () => Store.setKV('shopping', items);
+  let changedAt = (await Store.getKV('shoppingChangedAt')) || 0;
+  const save = () => {
+    changedAt = Date.now();
+    return Promise.all([Store.setKV('shopping', items), Store.setKV('shoppingChangedAt', changedAt)]);
+  };
 
   $view.innerHTML = `
     <form class="shop-add" id="addForm">
       <input id="newItem" placeholder="Artikel hinzufügen …" autocomplete="off" enterkeyhint="done">
       <button class="btn" type="submit" aria-label="Hinzufügen">+</button>
     </form>
+    <button class="btn secondary block" id="fromRecipe" style="margin-top:10px">📖 Zutaten aus einem Rezept übernehmen</button>
+    <p class="meta stamp" id="stamp"></p>
     <ul class="shop" id="shop"></ul>
     <div class="row" id="shopBtns">
       <button class="btn secondary" id="clearDone">Erledigte entfernen</button>
@@ -559,22 +687,28 @@ async function viewShopping() {
 
   const ul = document.getElementById('shop');
   const btns = document.getElementById('shopBtns');
+  const stamp = document.getElementById('stamp');
   const draw = () => {
     btns.hidden = !items.length;
+    stamp.textContent = items.length && changedAt ? 'Stand: ' + fmtDate(changedAt, true) : '';
     if (!items.length) {
       ul.innerHTML = `<li class="empty">Die Einkaufsliste ist leer.<br>
         Füge Artikel hinzu oder übernimm die Zutaten aus einem Rezept.</li>`;
       return;
     }
     const sorted = [...items.filter(i => !i.done), ...items.filter(i => i.done)];
-    ul.innerHTML = sorted.map(i => `
+    ul.innerHTML = sorted.map(i => {
+      const sub = [i.from, fmtDate(i.addedAt)].filter(Boolean).join(' · ');
+      return `
       <li class="${i.done ? 'done' : ''}" data-id="${esc(i.id)}">
         <input type="checkbox" ${i.done ? 'checked' : ''} aria-label="Erledigt">
-        <span class="txt">${esc(i.text)}${i.from ? `<span class="from">${esc(i.from)}</span>` : ''}</span>
+        <span class="txt">${esc(i.text)}${sub ? `<span class="from">${esc(sub)}</span>` : ''}</span>
         <button class="del" aria-label="Entfernen">✕</button>
-      </li>`).join('');
+      </li>`;
+    }).join('');
   };
   draw();
+  document.getElementById('fromRecipe').onclick = () => { location.hash = '#/einkauf/auswahl'; };
 
   ul.onclick = async e => {
     const li = e.target.closest('li[data-id]');
@@ -591,7 +725,7 @@ async function viewShopping() {
     const input = document.getElementById('newItem');
     const text = input.value.trim();
     if (!text) return;
-    items.unshift({ id: uid(), text, from: '', done: false });
+    items.unshift({ id: uid(), text, from: '', done: false, addedAt: Date.now() });
     input.value = '';
     await save();
     draw();
@@ -610,7 +744,7 @@ async function viewShopping() {
   document.getElementById('shareShop').onclick = () => {
     const open = items.filter(i => !i.done);
     if (!open.length) { toast('Keine offenen Artikel'); return; }
-    shareText('Einkaufsliste', 'Einkaufsliste:\n' + open.map(i => '• ' + i.text).join('\n'));
+    shareText('Einkaufsliste', `Einkaufsliste vom ${fmtDate(Date.now(), true)}:\n` + open.map(i => '• ' + i.text).join('\n'));
   };
 }
 

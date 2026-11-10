@@ -166,7 +166,23 @@ label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
   border: 2px solid var(--line); border-radius: 5px;
 }
 .ings li.done { color: var(--muted); text-decoration: line-through; }
-.ings li.done::before { background: var(--accent); border-color: var(--accent); }
+.ings li.done::before, .ings li.have::before {
+  content: "✓"; background: var(--accent); border-color: var(--accent); color: var(--accent-ink);
+  font-size: 13px; font-weight: 700; line-height: 14px; text-align: center;
+}
+.ings li.have { color: var(--muted); align-items: baseline; }
+.ings li.have .t { text-decoration: line-through; }
+.ings .t { flex: 1; }
+.ings .tag { flex: none; font-size: 12px; color: var(--accent); }
+.list-tools { display: flex; justify-content: flex-end; gap: 16px; margin-top: 8px; }
+.text-btn { border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; padding: 8px 0; cursor: pointer; }
+.sticky-bar {
+  position: sticky; bottom: calc(68px + env(safe-area-inset-bottom));
+  margin: 16px -16px 0; padding: 10px 16px;
+  background: var(--bg); border-top: 1px solid var(--line);
+}
+.sticky-bar .btn:disabled { opacity: .55; }
+.stamp { margin: 12px 0 0; font-size: 13px; }
 .steps { list-style: none; padding: 0; margin: 0; counter-reset: s; }
 .steps li { counter-increment: s; display: flex; gap: 12px; padding: 8px 0; }
 .steps li::before {

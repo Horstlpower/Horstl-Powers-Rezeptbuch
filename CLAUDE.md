@@ -15,7 +15,8 @@ alle Texte in der App und alle Antworten auf Deutsch.
 ## Dateien
 - `index.html` – Grundgerüst, Kopfzeile, Tableiste
 - `app.js` – gesamte Logik: Datenbank, Router (Hash-Routen `#/`, `#/rezept/<id>`, `#/neu`,
-  `#/bearbeiten/<id>`, `#/favoriten`, `#/einkauf`, `#/mehr`), Ansichten, Mengen-Umrechnung,
+  `#/bearbeiten/<id>`, `#/favoriten`, `#/einkauf`, `#/einkauf/auswahl`,
+  `#/einkauf/rezept/<id>?p=<portionen>&von=rezept`, `#/mehr`), Ansichten, Mengen-Umrechnung,
   Export/Import, Beispielrezept
 - `styles.css` – Gestaltung, heller und dunkler Modus
 - `sw.js` – Service Worker für Offline-Betrieb
@@ -24,7 +25,9 @@ alle Texte in der App und alle Antworten auf Deutsch.
 ## Datenformat eines Rezepts
 `{ id, title, category, servings, time, ingredients: [string], steps: [string], notes, source,
 photo (data:image/jpeg;base64,…), favorite, createdAt, updatedAt }` – siehe `normalize()` in `app.js`.
-Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, text, from, done }`.
+Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, text, from, done, addedAt }`
+(`addedAt` = Datumsstempel, fehlt bei alten Einträgen), Schlüssel `shoppingChangedAt` = „Stand“ der Liste.
+Ablauf Einkauf: Rezept wählen → abhaken, was zuhause ist → Rest kommt auf die Liste (keine Doppelten).
 
 ## Bei Änderungen beachten
 - **`CACHE`-Version in `sw.js` erhöhen** (z. B. `rezeptbuch-v2`) und `APP_VERSION` in `app.js`
