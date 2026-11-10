@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
 
@@ -305,8 +305,9 @@ async function viewDetail(id) {
         </div>` : ''}
       ${r.ingredients.length ? `
         <h3 class="section-title">Zutaten</h3>
+        <p class="meta" style="margin:-4px 0 4px">Tippe an, was du schon zuhause hast – das kommt nicht auf die Einkaufsliste.</p>
         <ul class="ings" id="ings"></ul>
-        <button class="btn secondary block" id="toShop" style="margin-top:12px">🛒 Auf die Einkaufsliste</button>` : ''}
+        <button class="btn block" id="toShop" style="margin-top:12px"></button>` : ''}
       ${r.steps.length ? `
         <h3 class="section-title">Zubereitung</h3>
         <ol class="steps">${r.steps.map(s => `<li><span>${esc(s)}</span></li>`).join('')}</ol>` : ''}
@@ -323,8 +324,15 @@ async function viewDetail(id) {
   const drawIngs = () => {
     const ul = document.getElementById('ings');
     if (ul) {
-      ul.innerHTML = r.ingredients.map((line, i) =>
-        `<li data-i="${i}" class="${checked.has(i) ? 'done' : ''}">${esc(scaleLine(line, factor()))}</li>`).join('');
+      ul.innerHTML = r.ingredients.map((line, i) => `
+        <li data-i="${i}" class="${checked.has(i) ? 'have' : ''}">
+          <span class="t">${esc(scaleLine(line, factor()))}</span>
+          ${checked.has(i) ? '<span class="tag">zuhause</span>' : ''}
+        </li>`).join('');
+      const n = r.ingredients.length - checked.size;
+      const btn = document.getElementById('toShop');
+      btn.disabled = n === 0;
+      btn.textContent = n ? `🛒 ${n} ${n === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste` : 'Alles zuhause – nichts zu kaufen';
     }
     const srv = document.getElementById('srv');
     if (srv) srv.textContent = `${servings} ${servings === 1 ? 'Portion' : 'Portionen'}`;
@@ -333,11 +341,11 @@ async function viewDetail(id) {
 
   const ul = document.getElementById('ings');
   if (ul) ul.onclick = e => {
-    const li = e.target.closest('li');
+    const li = e.target.closest('li[data-i]');
     if (!li) return;
     const i = Number(li.dataset.i);
     checked.has(i) ? checked.delete(i) : checked.add(i);
-    li.classList.toggle('done');
+    drawIngs();
   };
   if (base) {
     document.getElementById('minus').onclick = () => { if (servings > 1) { servings--; drawIngs(); } };
@@ -355,9 +363,12 @@ async function viewDetail(id) {
   document.getElementById('editBtn').onclick = () => { location.hash = '#/bearbeiten/' + encodeURIComponent(id); };
 
   const toShop = document.getElementById('toShop');
-  // Weiter zur Abhak-Ansicht: dort wird markiert, was schon zuhause ist
-  if (toShop) toShop.onclick = () => {
-    location.hash = `#/einkauf/rezept/${encodeURIComponent(id)}?p=${servings || ''}&von=rezept`;
+  // Nur die NICHT abgehakten Zutaten kommen auf die Liste
+  if (toShop) toShop.onclick = async () => {
+    toShop.disabled = true;
+    await addToShopping(r, factor(), checked);
+    checked.clear();
+    location.hash = '#/einkauf';
   };
 
   document.getElementById('shareBtn').onclick = () => {
@@ -641,24 +652,31 @@ async function viewShopCheck(id, params) {
 
   btn.onclick = async () => {
     btn.disabled = true;
-    const items = (await Store.getKV('shopping')) || [];
-    const now = Date.now();
-    let added = 0;
-    r.ingredients.forEach((line, i) => {
-      if (have.has(i)) return;
-      const text = scaleLine(line, factor());
-      // nicht doppelt eintragen, wenn es schon offen auf der Liste steht
-      if (items.some(x => !x.done && x.text === text && x.from === r.title)) return;
-      items.push({ id: uid(), text, from: r.title, done: false, addedAt: now });
-      added++;
-    });
-    await Promise.all([Store.setKV('shopping', items), Store.setKV('shoppingChangedAt', now)]);
-    const skipped = r.ingredients.length - have.size - added;
-    toast(!added ? 'Steht schon alles auf der Einkaufsliste'
-      : `${added} ${added === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste gesetzt` +
-        (skipped ? ` (${skipped} stand${skipped === 1 ? '' : 'en'} schon drauf)` : ''));
+    await addToShopping(r, factor(), have);
     location.hash = '#/einkauf';
   };
+}
+
+/* Fehlende Zutaten eines Rezepts auf die Einkaufsliste setzen.
+   `have` = Indizes der Zutaten, die schon zuhause sind (werden übersprungen). */
+async function addToShopping(r, factor, have) {
+  const items = (await Store.getKV('shopping')) || [];
+  const now = Date.now();
+  let added = 0;
+  r.ingredients.forEach((line, i) => {
+    if (have.has(i)) return;
+    const text = scaleLine(line, factor);
+    // nicht doppelt eintragen, wenn es schon offen auf der Liste steht
+    if (items.some(x => !x.done && x.text === text && x.from === r.title)) return;
+    items.push({ id: uid(), text, from: r.title, done: false, addedAt: now });
+    added++;
+  });
+  await Promise.all([Store.setKV('shopping', items), Store.setKV('shoppingChangedAt', now)]);
+  const skipped = r.ingredients.length - have.size - added;
+  toast(!added ? 'Steht schon alles auf der Einkaufsliste'
+    : `${added} ${added === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste gesetzt` +
+      (skipped ? ` (${skipped} stand${skipped === 1 ? '' : 'en'} schon drauf)` : ''));
+  return added;
 }
 
 /* Die Einkaufsliste selbst */
