@@ -16,7 +16,7 @@ alle Texte in der App und alle Antworten auf Deutsch.
 - `index.html` – Grundgerüst, Kopfzeile, Tableiste
 - `app.js` – gesamte Logik: Datenbank, Router (Hash-Routen `#/`, `#/rezept/<id>`, `#/neu`,
   `#/bearbeiten/<id>`, `#/favoriten`, `#/einkauf`, `#/einkauf/auswahl`,
-  `#/einkauf/rezept/<id>?p=<portionen>&von=rezept`, `#/mehr`), Ansichten, Mengen-Umrechnung,
+  `#/einkauf/rezept/<id>?p=<portionen>&von=rezept`, `#/vorrat`, `#/vorrat/kochen`, `#/mehr`), Ansichten, Mengen-Umrechnung,
   Export/Import, Beispielrezept
 - `styles.css` – Gestaltung, heller und dunkler Modus
 - `sw.js` – Service Worker für Offline-Betrieb
@@ -30,6 +30,10 @@ Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, tex
 Hintergrundfoto der Startseite: Store `kv`, Schlüssel `bgPhoto` (data-URL, leer = Standard-Verlauf).
 „Was koche ich heute?“ (Startseite): Grobauswahl `MOODS` in `app.js`, erkannt über Stichwörter
 (`MOOD_WORDS`) in Titel und Zutaten – kein eigenes Rezeptfeld. Neue Stichwörter dort ergänzen.
+Vorrat: Store `kv`, Schlüssel `pantry` = `{ have: [Wortstamm], extra: [Name], changedAt }`. Zutatenliste wird aus allen
+Rezepten erzeugt plus feste Grundliste `BASE_PANTRY` (vom Nutzer vorgegeben). `ingNames()` entfernt Menge/Einheit,
+`ingStem()` macht Ei/Eier gleich und führt gleichbedeutende Namen über `ING_ALIASES` zusammen
+(österreichisch: Rahm=Sahne, Germ=Hefe, Faschiertes=Hackfleisch, Gurkerl=Essiggurken). Abgleich in `pantryMatches()`.
 Hintergrundfoto: nicht Teil des Exports. Auswahl nur im Mehr-Tab (nicht auf der Startseite, damit sie aufgeräumt bleibt).
 Ablauf Einkauf: Rezept wählen → abhaken, was zuhause ist → Rest kommt auf die Liste (keine Doppelten).
 

@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.6.0';
 const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
@@ -192,6 +192,9 @@ async function route() {
         if (parts[1] === 'auswahl') return await viewPickRecipe();
         if (parts[1] === 'rezept') return await viewShopCheck(decodeURIComponent(parts[2] || ''), params);
         return await viewShopping();
+      case 'vorrat':
+        if (parts[1] === 'kochen') return await viewPantryMatch();
+        return await viewPantry();
       case 'mehr': return await viewMore();
       default: location.hash = '#/';
     }
@@ -260,7 +263,7 @@ function homeHero(withRandom) {
    `start` = Stichwort muss am Wortanfang stehen, `any` = darf auch mitten im Wort stehen. */
 const MOOD_WORDS = {
   fleisch: {
-    any: ['fleisch', 'schnitzel', 'gulasch', 'wurst', 'würstel', 'speck', 'schinken', 'hähnchen', 'hendl',
+    any: ['fleisch', 'faschiert', 'schnitzel', 'gulasch', 'wurst', 'würstel', 'speck', 'schinken', 'hähnchen', 'hendl',
       'huhn', 'hühner', 'geflügel', 'steak', 'frikadell', 'leberkäs', 'bacon', 'salami', 'kotelett', 'roulade'],
     start: ['rind', 'schwein', 'hack', 'kalb', 'lamm', 'pute', 'ente', 'gans', 'wild', 'reh', 'hirsch', 'chicken', 'beef'],
   },
@@ -890,6 +893,270 @@ async function viewShopping() {
     if (!open.length) { toast('Keine offenen Artikel'); return; }
     shareText('Einkaufsliste', `Einkaufsliste vom ${fmtDate(Date.now(), true)}:\n` + open.map(i => '• ' + i.text).join('\n'));
   };
+}
+
+/* =========================================================
+   Ansicht: Vorrat – was ist zuhause, was kann ich kochen?
+   IndexedDB-Store `kv`, Schlüssel `pantry` = { have: [stamm], extra: [name], changedAt }
+   ========================================================= */
+const UNIT_RE = new RegExp('^(?:(?:g|gr|kg|mg|ml|l|cl|dl|el|tl|msp|stk|pkg|pck|liter|gramm|kilo|esslöffel|teelöffel|' +
+  'prisen?|stück|dosen?|bund|becher|packung(?:en)?|päckchen|zehen?|scheiben?|tassen?|glas|gläser|handvoll|' +
+  'kugeln?|blatt|blätter|zweige?|stangen?|würfel|knollen?|kopf|köpfe|spritzer|schuss|tropfen|stiele?|' +
+  'etwas|ca|evtl|n\\.\\s?b|nach belieben)\\.?(?:\\s+|$))+', 'i');
+const ADJ_RE = /^(?:frisch|getrocknet|gemahlen|gehackt|gerieben|weich|kalt|warm|klein|groß|mittelgroß|reif|rot|gelb|grün|schwarz|weiß)(?:e|er|es|en|em)?\s+/i;
+
+/* Grundliste im Vorrat – steht immer drin, auch ohne Rezept (vom Nutzer vorgegeben) */
+const BASE_PANTRY = ['Zwiebel', 'Knoblauch', 'Essig', 'Öl', 'Nudeln', 'Spaghetti', 'Dosentomaten', 'Kapern',
+  'Karotten', 'Suppengemüse', 'Rahm', 'Eier', 'Salz', 'Pfeffer', 'Paprikapulver', 'Majoran', 'Mehl', 'Germ',
+  'Paprika', 'Gurkerl', 'Mais', 'Roggenmehl', 'Dinkelmehl', 'Butter', 'Gurke', 'Zucchini', 'Faschiertes',
+  'Milch', 'Sauerteig', 'Sojasoße'];
+
+/* Gleichbedeutende Namen – erster Eintrag ist der gemeinsame Name, der Rest zählt als dasselbe */
+const ING_ALIASES = [
+  ['Rahm', 'Sahne', 'Schlagsahne', 'Schlagrahm', 'Schlagobers', 'Obers'],
+  ['Germ', 'Hefe', 'Trockenhefe', 'Trockengerm', 'Frischhefe'],
+  ['Faschiertes', 'Faschierte', 'Hackfleisch', 'Hack', 'Gehacktes', 'Rinderhackfleisch', 'Schweinehackfleisch',
+    'Rinderfaschiertes', 'Gemischtes Hackfleisch', 'Gemischtes Faschiertes'],
+  ['Gurkerl', 'Essiggurken', 'Essiggurkerl', 'Gewürzgurken', 'Cornichons', 'Salzgurken'],
+  ['Dosentomaten', 'Tomatendosen', 'Tomatendose', 'Gehackte Tomaten', 'Geschälte Tomaten', 'Passierte Tomaten',
+    'Pizzatomaten', 'Tomaten aus der Dose', 'Stückige Tomaten'],
+  ['Spaghetti', 'Spagetti'],
+  ['Nudeln', 'Pasta', 'Penne', 'Fusilli', 'Farfalle', 'Makkaroni', 'Maccheroni', 'Rigatoni', 'Tagliatelle',
+    'Bandnudeln', 'Hörnchennudeln', 'Spiralnudeln', 'Linguine', 'Fettuccine'],
+  ['Zucchini', 'Zuchini', 'Zucchino', 'Zucchinis'],
+  ['Karotten', 'Karotte', 'Möhren', 'Möhre', 'Mohrrüben', 'Gelbe Rüben'],
+  ['Suppengemüse', 'Suppengrün', 'Wurzelwerk', 'Wurzelgemüse'],
+  ['Sojasoße', 'Sojasauce', 'Sojasosse', 'Sojasoße'],
+  ['Öl', 'Olivenöl', 'Sonnenblumenöl', 'Rapsöl', 'Pflanzenöl', 'Speiseöl', 'Bratöl', 'Neutrales Öl'],
+  ['Essig', 'Weißweinessig', 'Rotweinessig', 'Apfelessig', 'Balsamico', 'Balsamessig', 'Branntweinessig', 'Kräuteressig'],
+  ['Mehl', 'Weizenmehl', 'Glattes Mehl', 'Griffiges Mehl', 'Universalmehl', 'Weizenmehl Type 405', 'Mehl Type 405'],
+  ['Knoblauch', 'Knoblauchzehe', 'Knoblauchzehen', 'Knofel'],
+  ['Zwiebel', 'Zwiebeln', 'Gemüsezwiebel', 'Speisezwiebel'],
+  ['Mais', 'Maiskörner', 'Dosenmais', 'Zuckermais'],
+  ['Gurke', 'Salatgurke', 'Schlangengurke'],
+  ['Paprika', 'Paprikaschote', 'Paprikaschoten', 'Spitzpaprika'],
+  ['Eier', 'Ei', 'Eigelb', 'Eiweiß', 'Eidotter', 'Dotter'],
+  ['Milch', 'Vollmilch', 'Frischmilch'],
+  ['Sauerteig', 'Sauerteigansatz', 'Anstellgut'],
+  ['Pfeffer', 'Pfeffer aus der Mühle'],
+  ['Paprikapulver', 'Edelsüßes Paprikapulver', 'Paprikapulver edelsüß', 'Rosenpaprika', 'Geräuchertes Paprikapulver'],
+  ['Majoran', 'Getrockneter Majoran'],
+];
+
+/* Aus einer Zutatenzeile die reinen Zutatennamen holen: „2 EL Salz und Pfeffer“ → [Salz, Pfeffer] */
+function ingNames(line) {
+  const isCan = /\bdosen?\b/i.test(line);
+  let s = String(line).replace(/\(.*?\)/g, ' ').split(/[,;]/)[0].trim();
+  const m = s.match(QTY_RE);
+  if (m && /^\s*[\d½¼¾⅓⅔⅛]/.test(s)) s = m[3] || '';
+  s = s.replace(UNIT_RE, '').replace(ADJ_RE, '');
+  s = s.split(/\s+(?:zum|zur|für|nach|à|a|je|oder)\s+|\s*\/\s*/i)[0];
+  return s.split(/\s+(?:und|&)\s+/i)
+    .map(x => x.replace(UNIT_RE, '').replace(ADJ_RE, '').replace(/[.:!]+$/, '').trim())
+    .filter(x => x.length > 1 && !/^\d/.test(x))
+    .map(x => (isCan && /^tomate/i.test(x) ? 'Dosentomaten' : x))
+    .map(x => x.charAt(0).toUpperCase() + x.slice(1));
+}
+/* Einfacher Wortstamm, damit „Ei“/„Eier“ oder „Kartoffel“/„Kartoffeln“ zusammenpassen */
+function rawStem(name) {
+  const s = name.toLowerCase().replace(/\s+/g, ' ').trim();
+  for (const end of ['en', 'er', 'n', 'e', 's']) {
+    if (s.endsWith(end) && s.length - end.length >= 2) return s.slice(0, -end.length);
+  }
+  return s;
+}
+const ALIAS_STEM = new Map();
+ING_ALIASES.forEach(([main, ...rest]) => {
+  const target = rawStem(main);
+  [main, ...rest].forEach(v => ALIAS_STEM.set(rawStem(v), target));
+});
+/* Stamm inkl. gleichbedeutender Namen; „Rinderfaschiertes“ endet auf „faschiertes“ → zählt auch */
+function ingStem(name) {
+  const s = rawStem(name);
+  if (ALIAS_STEM.has(s)) return ALIAS_STEM.get(s);
+  for (const [v, target] of ALIAS_STEM) if (v.length >= 5 && v !== target && s.endsWith(v)) return target;
+  return s;
+}
+/* Ist die Zutat (Stamm) durch den Vorrat abgedeckt? Gleichbedeutendes regelt `ING_ALIASES`
+   (bewusst kein allgemeines „endet auf“, sonst würde „Mehl“ auch „Roggenmehl“ abdecken). */
+function stemCovered(stem, haveSet) {
+  return haveSet.has(stem);
+}
+async function loadPantry() {
+  const p = (await Store.getKV('pantry')) || {};
+  return { have: new Set(Array.isArray(p.have) ? p.have : []), extra: Array.isArray(p.extra) ? p.extra : [], changedAt: p.changedAt || 0 };
+}
+async function savePantry(p) {
+  p.changedAt = Date.now();
+  await Store.setKV('pantry', { have: [...p.have], extra: p.extra, changedAt: p.changedAt });
+}
+/* Alle Zutaten aus Rezepten + selbst hinzugefügte, ohne Doppelte (nach Stamm) */
+function pantryItems(recipes, p) {
+  const map = new Map();
+  const add = (name, extra, base) => {
+    const st = ingStem(name);
+    if (!map.has(st)) map.set(st, { name, stem: st, extra, base: !!base, uses: 0 });
+    return map.get(st);
+  };
+  BASE_PANTRY.forEach(n => add(n, false, true));
+  p.extra.forEach(n => add(n, true));
+  recipes.forEach(r => r.ingredients.forEach(line => ingNames(line).forEach(n => { add(n, false).uses++; })));
+  return [...map.values()].sort((a, b) => a.name.localeCompare(b.name, 'de'));
+}
+/* Abgleich: für jedes Rezept die fehlenden Zutatenzeilen */
+function pantryMatches(recipes, haveSet) {
+  return recipes
+    .filter(r => r.category !== 'Getränk' && r.ingredients.length)
+    .map(r => {
+      const missing = [], haveIdx = new Set();
+      let counted = 0;
+      r.ingredients.forEach((line, i) => {
+        const names = ingNames(line);
+        if (!names.length) return;
+        counted++;
+        if (names.every(n => stemCovered(ingStem(n), haveSet))) haveIdx.add(i);
+        else missing.push(line);
+      });
+      return { r, missing, haveIdx, counted };
+    })
+    .filter(x => x.counted)
+    .sort((a, b) => a.missing.length - b.missing.length || a.r.title.localeCompare(b.r.title, 'de'));
+}
+
+async function viewPantry() {
+  setTab('pantry');
+  setHeader('Vorrat', null);
+  const recipes = await Store.all();
+  const p = await loadPantry();
+  let items = pantryItems(recipes, p);
+  let filter = '';
+
+  $view.innerHTML = `
+    <p class="meta" style="margin:0 0 10px">Hake an, was du <b>zuhause</b> hast. Die Liste bleibt gespeichert –
+      unten siehst du, was du damit kochen kannst.</p>
+    <form class="shop-add" id="pAddForm">
+      <input id="pInput" type="search" placeholder="Zutat suchen oder hinzufügen …" autocomplete="off" enterkeyhint="done">
+      <button class="btn" type="submit" aria-label="Hinzufügen">+</button>
+    </form>
+    <div class="list-tools">
+      <span class="meta" id="pCount" style="margin-right:auto;align-self:center"></span>
+      <button class="text-btn" id="pNone">Alle Hakerl entfernen</button>
+    </div>
+    <ul class="shop" id="pList"></ul>
+    <div class="sticky-bar"><button class="btn block" id="pMatch"></button></div>`;
+
+  const ul = document.getElementById('pList');
+  const input = document.getElementById('pInput');
+  const btn = document.getElementById('pMatch');
+  const draw = () => {
+    const q = filter.trim().toLowerCase();
+    const list = items.filter(i => !q || i.name.toLowerCase().includes(q));
+    ul.innerHTML = list.length ? list.map(i => {
+      const on = p.have.has(i.stem);
+      return `<li class="${on ? 'have-row' : ''}" data-stem="${esc(i.stem)}">
+        <input type="checkbox" ${on ? 'checked' : ''} aria-label="Zuhause">
+        <span class="txt">${esc(i.name)}${i.uses ? `<span class="from">in ${i.uses} ${i.uses === 1 ? 'Rezept' : 'Rezepten'}</span>`
+          : `<span class="from">${i.base ? 'Grundliste' : 'selbst hinzugefügt'}</span>`}</span>
+        ${i.extra && !i.uses ? '<button class="del" aria-label="Entfernen">✕</button>' : ''}
+      </li>`;
+    }).join('') : `<li class="empty">${items.length ? 'Nichts gefunden – mit ＋ hinzufügen.' : 'Noch keine Zutaten.<br>Lege Rezepte an oder füge Zutaten mit ＋ hinzu.'}</li>`;
+    const haveCount = items.filter(i => p.have.has(i.stem)).length;
+    document.getElementById('pCount').textContent = `${haveCount} von ${items.length} zuhause`;
+    const m = pantryMatches(recipes, p.have);
+    const ok = m.filter(x => !x.missing.length).length;
+    const near = m.filter(x => x.missing.length && x.missing.length <= 2).length;
+    btn.textContent = ok ? `🍳 ${ok} ${ok === 1 ? 'Rezept' : 'Rezepte'} möglich${near ? ` · ${near} fast` : ''}`
+      : near ? `🍳 ${near} ${near === 1 ? 'Rezept' : 'Rezepte'} fast möglich` : '🍳 Was kann ich kochen?';
+  };
+  draw();
+
+  ul.onclick = async e => {
+    const li = e.target.closest('li[data-stem]');
+    if (!li) return;
+    const stem = li.dataset.stem;
+    if (e.target.closest('.del')) {
+      const it = items.find(i => i.stem === stem);
+      p.extra = p.extra.filter(n => ingStem(n) !== stem);
+      p.have.delete(stem);
+      items = items.filter(i => i !== it);
+    } else {
+      p.have.has(stem) ? p.have.delete(stem) : p.have.add(stem);
+    }
+    await savePantry(p);
+    draw();
+  };
+  input.addEventListener('input', () => { filter = input.value; draw(); });
+  document.getElementById('pAddForm').onsubmit = async e => {
+    e.preventDefault();
+    const raw = input.value.trim();
+    if (!raw) return;
+    const name = raw.charAt(0).toUpperCase() + raw.slice(1);
+    const stem = ingStem(name);
+    if (!items.some(i => i.stem === stem)) {
+      p.extra.push(name);
+      items = pantryItems(recipes, p);
+    }
+    p.have.add(stem);
+    await savePantry(p);
+    input.value = ''; filter = '';
+    draw();
+    toast(`„${name}“ ist zuhause abgehakt`);
+  };
+  document.getElementById('pNone').onclick = async () => {
+    if (!p.have.size) return;
+    if (!confirm('Alle Hakerl im Vorrat entfernen?')) return;
+    p.have.clear();
+    await savePantry(p);
+    draw();
+  };
+  btn.onclick = () => { location.hash = '#/vorrat/kochen'; };
+}
+
+async function viewPantryMatch() {
+  setTab('pantry');
+  setHeader('Was kann ich kochen?', '#/vorrat');
+  const recipes = await Store.all();
+  const p = await loadPantry();
+  const m = pantryMatches(recipes, p.have);
+  const ok = m.filter(x => !x.missing.length);
+  const near = m.filter(x => x.missing.length && x.missing.length <= 2);
+
+  const row = (x, i) => {
+    const img = safeImg(x.r.photo);
+    return `<li class="match">
+      <a class="card" href="#/rezept/${esc(encodeURIComponent(x.r.id))}">
+        ${img ? `<img class="thumb" src="${esc(img)}" alt="" loading="lazy">` : '<div class="thumb">🍽️</div>'}
+        <div class="card-body">
+          <div class="card-title">${esc(x.r.title)}</div>
+          <div class="meta">${x.missing.length ? 'Es fehlt: ' + esc(x.missing.map(l => ingNames(l).join(' / ')).join(', '))
+            : 'Alles zuhause ✓'}</div>
+        </div>
+      </a>
+      ${x.missing.length ? `<button class="text-btn shop-missing" data-i="${i}">🛒 Fehlendes auf die Einkaufsliste</button>` : ''}
+    </li>`;
+  };
+  if (!p.have.size) {
+    $view.innerHTML = `<div class="empty"><div class="big">🧺</div>
+      <p>Im Vorrat ist noch nichts abgehakt.</p>
+      <a class="btn" href="#/vorrat">Zum Vorrat</a></div>`;
+    return;
+  }
+  $view.innerHTML = `
+    <h3 class="section-title" style="margin-top:4px">✅ Das kannst du jetzt kochen</h3>
+    ${ok.length ? `<ul class="cards">${ok.map(x => row(x, m.indexOf(x))).join('')}</ul>`
+      : '<p class="meta">Mit dem, was zuhause ist, geht noch kein Rezept ganz auf.</p>'}
+    ${near.length ? `<h3 class="section-title">🛒 Es fehlt nur wenig</h3>
+      <ul class="cards">${near.map(x => row(x, m.indexOf(x))).join('')}</ul>` : ''}
+    <p class="meta" style="margin-top:20px">Grundlage: ${p.have.size} abgehakte Zutaten im Vorrat.
+      Salz, Wasser &amp; Co. zählen nur, wenn sie abgehakt sind.</p>`;
+  $view.querySelectorAll('.shop-missing').forEach(b => {
+    b.onclick = async () => {
+      const x = m[Number(b.dataset.i)];
+      b.disabled = true;
+      await addToShopping(x.r, 1, x.haveIdx);
+      b.textContent = '✓ Auf der Einkaufsliste';
+    };
+  });
 }
 
 /* =========================================================

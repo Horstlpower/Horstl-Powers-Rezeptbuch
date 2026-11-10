@@ -9,6 +9,8 @@ die Rezepte bleiben auf dem eigenen Gerät.
 - Portionen umrechnen
 - Einkaufsliste – Rezept wählen, abhaken was zuhause ist, der Rest kommt auf die Liste
   (mit Datumsstempel)
+- Vorrat: abhaken, was zuhause ist (bleibt gespeichert) – die App schlägt vor, was du damit kochen kannst,
+  und setzt Fehlendes auf Wunsch auf die Einkaufsliste
 - Rezepte teilen
 - „Was koche ich heute?“ – Zufallsrezept auf der Startseite mit Grobauswahl (Fleisch, Fisch, Kartoffel, Nudeln, Reis, Vegetarisch, Suppe, Süßes)
 - Eigenes Hintergrundfoto für die Startseite aus der Mediathek
