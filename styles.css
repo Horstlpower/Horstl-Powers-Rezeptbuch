@@ -223,6 +223,39 @@ label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
 .panel h3 { margin: 0 0 6px; font-size: 17px; }
 .panel p { margin: 0 0 12px; color: var(--muted); font-size: 14px; }
 
+/* ---------- Startseite: Name + Hintergrundfoto ---------- */
+#bgPhoto { display: none; }
+body.home #bgPhoto {
+  display: block; position: fixed; inset: 0; z-index: -1;
+  background: linear-gradient(160deg, #c8693d, #7a3418);
+  background-size: cover; background-position: center;
+}
+body.home.has-bg #bgPhoto { background-color: #000; }
+body.home #bgPhoto::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.05) 35%, rgba(0,0,0,.35));
+}
+body.home { background: transparent; }
+body.home .topbar {
+  background: rgba(0,0,0,.18); border-bottom-color: transparent;
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
+body.home .topbar .icon-btn { color: #fff; }
+.home-hero { position: relative; padding: 28px 0 22px; color: #fff; text-align: center; }
+.home-name {
+  margin: 0; font-size: 34px; line-height: 1.1; font-weight: 800; letter-spacing: .3px;
+  text-shadow: 0 2px 12px rgba(0,0,0,.55);
+}
+.home-name span { display: block; font-size: 22px; font-weight: 600; margin-top: 4px; opacity: .95; }
+.bg-pick {
+  display: inline-flex; align-items: center; gap: 6px; margin: 14px 0 0;
+  padding: 6px 14px; border-radius: 999px; cursor: pointer;
+  background: rgba(0,0,0,.35); color: #fff; font-size: 13px; font-weight: 600;
+  -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+}
+body.home .chip:not(.active) { background: var(--surface); }
+body.home .empty.panel { padding: 32px 16px; color: var(--muted); }
+
 /* ---------- Hinweis ---------- */
 #toast {
   position: fixed; left: 50%; z-index: 20;

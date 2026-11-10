@@ -10,6 +10,7 @@ die Rezepte bleiben auf dem eigenen Gerät.
 - Einkaufsliste – Rezept wählen, abhaken was zuhause ist, der Rest kommt auf die Liste
   (mit Datumsstempel)
 - Rezepte teilen
+- Eigenes Hintergrundfoto für die Startseite aus der Mediathek
 - Export/Import als Datei – zum Sichern und Übertragen auf andere Geräte
 
 ## Installieren

@@ -1,6 +1,7 @@
 'use strict';
 
-const APP_VERSION = '1.1.1';
+const APP_VERSION = '1.2.0';
+const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
 
@@ -179,6 +180,7 @@ async function route() {
   const parts = path.split('/').filter(Boolean);
   const params = new URLSearchParams(query);
   window.scrollTo(0, 0);
+  document.body.classList.remove('home');
   try {
     if (!parts.length) return await viewList(false);
     switch (parts[0]) {
@@ -215,11 +217,51 @@ function card(r, href) {
   </a></li>`;
 }
 
+/* Hintergrundfoto der Startseite (IndexedDB-Store `kv`, Schlüssel `bgPhoto`) */
+async function applyBackground() {
+  const img = safeImg(await Store.getKV('bgPhoto'));
+  const el = document.getElementById('bgPhoto');
+  el.style.backgroundImage = img ? `url("${img}")` : '';
+  document.body.classList.toggle('has-bg', !!img);
+  return img;
+}
+async function setBackground(file) {
+  try {
+    const img = await compressImage(file, 1600, 0.82);
+    await Store.setKV('bgPhoto', img);
+    await applyBackground();
+    toast('Hintergrundfoto gespeichert');
+  } catch (e) {
+    showError('Das Foto konnte nicht übernommen werden: ' + e.message);
+  }
+}
+async function removeBackground() {
+  await Store.setKV('bgPhoto', '');
+  await applyBackground();
+  toast('Hintergrundfoto entfernt');
+}
+function bindBgInput(input) {
+  input.onchange = async () => {
+    const file = input.files[0];
+    input.value = '';
+    if (file) await setBackground(file);
+  };
+}
+function homeHero() {
+  return `<section class="home-hero">
+    <h2 class="home-name">Horstl-Powers<span>Rezeptbuch</span></h2>
+    <label class="bg-pick">🖼️ Hintergrund
+      <input type="file" accept="image/*" class="bgFile" hidden></label>
+  </section>`;
+}
+
 async function viewList(favOnly) {
   setTab(favOnly ? 'fav' : 'list');
-  setHeader(favOnly ? 'Favoriten' : 'Rezeptbuch', null,
+  setHeader(favOnly ? 'Favoriten' : '', null,
     '<button class="icon-btn" id="addBtn" aria-label="Neues Rezept">＋</button>');
   document.getElementById('addBtn').onclick = () => { location.hash = '#/neu'; };
+  if (!favOnly) document.body.classList.add('home');
+  const hero = favOnly ? '' : homeHero();
 
   let all = await Store.all();
   if (favOnly) all = all.filter(r => r.favorite);
@@ -230,10 +272,11 @@ async function viewList(favOnly) {
       $view.innerHTML = `<div class="empty"><div class="big">★</div>
         <p>Noch keine Favoriten.<br>Öffne ein Rezept und tippe oben auf den Stern.</p></div>`;
     } else {
-      $view.innerHTML = `<div class="empty"><div class="big">🍲</div>
+      $view.innerHTML = `${hero}<div class="empty panel"><div class="big">🍲</div>
         <p>Noch keine Rezepte.</p>
         <button class="btn" id="firstBtn">Erstes Rezept anlegen</button>
         <p style="margin-top:12px"><button class="btn secondary" id="sampleBtn">Beispielrezept laden</button></p></div>`;
+      $view.querySelectorAll('.bgFile').forEach(bindBgInput);
       document.getElementById('firstBtn').onclick = () => { location.hash = '#/neu'; };
       document.getElementById('sampleBtn').onclick = async () => {
         await Store.put(normalize(SAMPLE));
@@ -247,7 +290,7 @@ async function viewList(favOnly) {
   const cats = CATEGORIES.filter(c => used.includes(c)).concat(used.filter(c => !CATEGORIES.includes(c)));
   if (state.cat !== 'Alle' && !cats.includes(state.cat)) state.cat = 'Alle';
 
-  $view.innerHTML = `
+  $view.innerHTML = `${hero}
     <div class="search"><input id="q" type="search" placeholder="Rezept oder Zutat suchen …"
       value="${esc(state.q)}" autocomplete="off" enterkeyhint="search"></div>
     ${cats.length > 1 ? `<div class="chips">${['Alle', ...cats].map(c =>
@@ -261,8 +304,9 @@ async function viewList(favOnly) {
       (!q || [r.title, r.category, r.ingredients.join(' '), r.notes].join(' ').toLowerCase().includes(q)));
     document.getElementById('cards').innerHTML = list.length
       ? list.map(r => card(r)).join('')
-      : '<li class="empty">Nichts gefunden.</li>';
+      : '<li class="empty panel">Nichts gefunden.</li>';
   };
+  $view.querySelectorAll('.bgFile').forEach(bindBgInput);
   document.getElementById('q').addEventListener('input', e => { state.q = e.target.value; draw(); });
   $view.querySelectorAll('.chip').forEach(b => {
     b.onclick = () => {
@@ -806,8 +850,18 @@ async function viewMore() {
   setHeader('Mehr', null);
   const count = (await Store.all()).length;
   const share = canShareFiles();
+  const hasBg = !!safeImg(await Store.getKV('bgPhoto'));
 
   $view.innerHTML = `
+    <div class="panel">
+      <h3>Hintergrundfoto der Startseite</h3>
+      <p>Wähle ein Foto aus deiner Mediathek. Es bleibt nur auf diesem Gerät gespeichert.</p>
+      <div class="row">
+        <label class="btn" style="margin:0">${hasBg ? 'Foto ändern …' : 'Foto auswählen …'}
+          <input type="file" accept="image/*" class="bgFile" hidden></label>
+        ${hasBg ? '<button class="btn secondary" id="bgRemove">Entfernen</button>' : ''}
+      </div>
+    </div>
     <div class="panel">
       <h3>Rezepte sichern &amp; übertragen</h3>
       <p>Speichert ${count === 1 ? 'dein Rezept' : `alle ${count} Rezepte`} samt Fotos in eine Datei.
@@ -830,8 +884,16 @@ async function viewMore() {
       <p><b>iPhone:</b> In Safari unten auf „Teilen“ tippen und „Zum Home-Bildschirm“ wählen.<br>
         <b>Android:</b> In Chrome auf ⋮ tippen und „App installieren“ bzw. „Zum Startbildschirm hinzufügen“ wählen.</p>
     </div>
-    <p class="meta" style="text-align:center">Horstl Powers Rezeptbuch · Version ${APP_VERSION}<br>
+    <p class="meta" style="text-align:center">${APP_NAME} · Version ${APP_VERSION}<br>
       Deine Rezepte sind nur auf diesem Gerät gespeichert.</p>`;
+
+  $view.querySelectorAll('.bgFile').forEach(input => {
+    bindBgInput(input);
+    const done = input.onchange;
+    input.onchange = async () => { await done(); await viewMore(); };
+  });
+  const bgRemove = document.getElementById('bgRemove');
+  if (bgRemove) bgRemove.onclick = async () => { await removeBackground(); await viewMore(); };
 
   document.getElementById('exp').onclick = async () => {
     const file = await buildExportFile();
@@ -891,4 +953,5 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   navigator.serviceWorker.register('sw.js').catch(() => {});
 }
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+applyBackground().catch(() => {});
 route();
