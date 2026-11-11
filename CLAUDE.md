@@ -23,8 +23,11 @@ alle Texte in der App und alle Antworten auf Deutsch.
 - `manifest.webmanifest`, `icons/` – Installation als App
 
 ## Datenformat eines Rezepts
-`{ id, title, category, servings, time, ingredients: [string], steps: [string], notes, source,
+`{ id, title, category, servings, time, ingredients: [string], spices: [string], steps: [string], notes, source,
 photo (data:image/jpeg;base64,…), favorite, createdAt, updatedAt }` – siehe `normalize()` in `app.js`.
+Gewürze (`spices`, fehlt bei alten Rezepten): Formular bietet `STANDARD_SPICES` als Knöpfe + Freitext. Anzeige über
+`ingListHtml()` – Zutaten oben, Gewürze unten; Index ≥ `ingredients.length` = Gewürz (`allIngs()`).
+Vorrat/„Was kann ich kochen?“ prüfen bewusst nur `ingredients`, nicht die Gewürze.
 Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, text, from, done, addedAt }`
 (`addedAt` = Datumsstempel, fehlt bei alten Einträgen), Schlüssel `shoppingChangedAt` = „Stand“ der Liste.
 Hintergrundfoto der Startseite: Store `kv`, Schlüssel `bgPhoto` (data-URL, leer = Standard-Verlauf).

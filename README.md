@@ -4,7 +4,7 @@ Ein persönliches Rezeptbuch als Web-App für iPhone, Android und PC – funktio
 die Rezepte bleiben auf dem eigenen Gerät.
 
 ## Funktionen
-- Rezepte mit Foto, Zutaten, Zubereitungsschritten, Notizen und Quelle
+- Rezepte mit Foto, Zutaten, Gewürzen (Standard-Gewürze zum Antippen), Zubereitungsschritten, Notizen und Quelle
 - Kategorien, Suche (auch nach Zutaten) und Favoriten
 - Portionen umrechnen
 - Einkaufsliste – Rezept wählen, abhaken was zuhause ist, der Rest kommt auf die Liste

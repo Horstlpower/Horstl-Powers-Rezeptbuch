@@ -174,6 +174,11 @@ label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
 .ings li.have .t { text-decoration: line-through; }
 .ings .t { flex: 1; }
 .ings .tag { flex: none; font-size: 12px; color: var(--accent); }
+/* Zwischenüberschrift „Gewürze“ in der Zutatenliste */
+.ings li.sub { cursor: default; font-weight: 700; font-size: 16px; padding: 18px 4px 8px; color: var(--text); }
+.ings li.sub::before { display: none; }
+/* Gewürz-Knöpfe im Rezeptformular */
+.spice-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .list-tools { display: flex; justify-content: flex-end; gap: 16px; margin-top: 8px; }
 .text-btn { border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; padding: 8px 0; cursor: pointer; }
 .sticky-bar {

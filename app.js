@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.7.1';
+const APP_VERSION = '1.8.0';
 const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
@@ -109,6 +109,26 @@ function setTab(name) {
   document.querySelectorAll('.tabbar a').forEach(a => a.classList.toggle('active', a.dataset.tab === name));
 }
 
+/* Gewürze: Standardliste zum Antippen beim Rezept anlegen (vom Nutzer vorgegeben, hier erweiterbar) */
+const STANDARD_SPICES = ['Salz', 'Pfeffer', 'Oregano', 'Basilikum', 'Kümmel', 'Paprikapulver'];
+
+/* Zutaten + Gewürze als eine Liste (Index < ingredients.length = Zutat, sonst Gewürz) */
+function allIngs(r) {
+  return [...r.ingredients, ...(r.spices || [])];
+}
+/* Listeneinträge für Rezept- und Abhak-Ansicht: Zutaten oben, Gewürze unten */
+function ingListHtml(r, factor, have) {
+  const li = (line, i) => `
+    <li data-i="${i}" class="${have.has(i) ? 'have' : ''}">
+      <span class="t">${esc(scaleLine(line, factor))}</span>
+      ${have.has(i) ? '<span class="tag">zuhause</span>' : ''}
+    </li>`;
+  const n = r.ingredients.length;
+  const spices = r.spices || [];
+  return r.ingredients.map(li).join('') +
+    (spices.length ? `<li class="sub">🌿 Gewürze</li>` + spices.map((s, j) => li(s, n + j)).join('') : '');
+}
+
 /* Rezept aus beliebigen Daten in ein sauberes Format bringen
    (für Formular und Import gleichermaßen) */
 function normalize(x) {
@@ -124,6 +144,7 @@ function normalize(x) {
     servings: Math.max(0, Math.min(1000, parseInt(x.servings, 10) || 0)),
     time: String(x.time || '').trim(),
     ingredients: arr(x.ingredients),
+    spices: arr(x.spices),
     steps: arr(x.steps),
     notes: String(x.notes || '').trim(),
     source: String(x.source || '').trim(),
@@ -388,7 +409,7 @@ async function viewList(favOnly) {
     const q = state.q.trim().toLowerCase();
     const list = all.filter(r =>
       (state.cat === 'Alle' || r.category === state.cat) &&
-      (!q || [r.title, r.category, r.ingredients.join(' '), r.notes].join(' ').toLowerCase().includes(q)));
+      (!q || [r.title, r.category, allIngs(r).join(' '), r.notes].join(' ').toLowerCase().includes(q)));
     document.getElementById('cards').innerHTML = list.length
       ? list.map(r => card(r)).join('')
       : '<li class="empty panel">Nichts gefunden.</li>';
@@ -435,7 +456,7 @@ async function viewDetail(id) {
           <span id="srv"></span>
           <button id="plus" aria-label="Mehr Portionen">+</button>
         </div>` : ''}
-      ${r.ingredients.length ? `
+      ${allIngs(r).length ? `
         <h3 class="section-title">Zutaten</h3>
         <p class="meta" style="margin:-4px 0 4px">Tippe an, was du schon zuhause hast – das kommt nicht auf die Einkaufsliste.</p>
         <ul class="ings" id="ings"></ul>
@@ -456,12 +477,8 @@ async function viewDetail(id) {
   const drawIngs = () => {
     const ul = document.getElementById('ings');
     if (ul) {
-      ul.innerHTML = r.ingredients.map((line, i) => `
-        <li data-i="${i}" class="${checked.has(i) ? 'have' : ''}">
-          <span class="t">${esc(scaleLine(line, factor()))}</span>
-          ${checked.has(i) ? '<span class="tag">zuhause</span>' : ''}
-        </li>`).join('');
-      const n = r.ingredients.length - checked.size;
+      ul.innerHTML = ingListHtml(r, factor(), checked);
+      const n = allIngs(r).length - checked.size;
       const btn = document.getElementById('toShop');
       btn.disabled = n === 0;
       btn.textContent = n ? `🛒 ${n} ${n === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste` : 'Alles zuhause – nichts zu kaufen';
@@ -507,6 +524,7 @@ async function viewDetail(id) {
     const parts = [r.title];
     if (base) parts.push(`Für ${servings} ${servings === 1 ? 'Portion' : 'Portionen'}`);
     if (r.ingredients.length) parts.push('Zutaten:\n' + r.ingredients.map(l => '• ' + scaleLine(l, factor())).join('\n'));
+    if ((r.spices || []).length) parts.push('Gewürze:\n' + r.spices.map(l => '• ' + scaleLine(l, factor())).join('\n'));
     if (r.steps.length) parts.push('Zubereitung:\n' + r.steps.map((s, i) => `${i + 1}. ${s}`).join('\n'));
     if (r.notes) parts.push(r.notes);
     shareText(r.title, parts.join('\n\n'));
@@ -560,8 +578,16 @@ async function viewEdit(id) {
   setTab('list');
   const r = id ? await Store.get(id) : null;
   if (id && !r) { location.hash = '#/'; return; }
-  const d = r || { title: '', category: 'Hauptgericht', servings: 4, time: '', ingredients: [], steps: [], notes: '', source: '', photo: '' };
+  const d = r || { title: '', category: 'Hauptgericht', servings: 4, time: '', ingredients: [], spices: [], steps: [], notes: '', source: '', photo: '' };
   let photo = safeImg(d.photo);
+  // Gewürze aufteilen: Standard-Gewürze werden als Knopf angehakt, alle anderen stehen im Freitextfeld
+  const stdKey = s => s.trim().toLowerCase();
+  const picked = new Set();
+  const extraSpices = [];
+  (d.spices || []).forEach(s => {
+    const std = STANDARD_SPICES.find(x => stdKey(x) === stdKey(s));
+    std ? picked.add(std) : extraSpices.push(s);
+  });
 
   setHeader(r ? 'Rezept bearbeiten' : 'Neues Rezept', r ? '#/rezept/' + encodeURIComponent(id) : '#/');
   const used = (await Store.all()).map(x => x.category).filter(Boolean);
@@ -595,6 +621,13 @@ async function viewEdit(id) {
 
       <label for="ing">Zutaten <span class="hint">– eine pro Zeile, z. B. „200 g Mehl“</span></label>
       <textarea id="ing" rows="8">${esc(d.ingredients.join('\n'))}</textarea>
+
+      <label>Gewürze <span class="hint">– antippen, was ins Rezept soll</span></label>
+      <div class="spice-chips" id="spiceChips">${STANDARD_SPICES.map(s =>
+        `<button type="button" class="chip${picked.has(s) ? ' active' : ''}" data-spice="${esc(s)}"
+          aria-pressed="${picked.has(s)}">${picked.has(s) ? '✓ ' : ''}${esc(s)}</button>`).join('')}</div>
+      <label for="spx" style="font-weight:400">Weitere Gewürze <span class="hint">– eine pro Zeile, gern mit Menge, z. B. „1 TL Majoran“</span></label>
+      <textarea id="spx" rows="3">${esc(extraSpices.join('\n'))}</textarea>
 
       <label for="steps">Zubereitung <span class="hint">– ein Schritt pro Zeile</span></label>
       <textarea id="steps" rows="8">${esc(d.steps.join('\n'))}</textarea>
@@ -633,6 +666,18 @@ async function viewEdit(id) {
     catch (err) { showError(err.message); }
   };
   rm.onclick = () => { photo = ''; showPhoto(); };
+
+  const chipsEl = document.getElementById('spiceChips');
+  chipsEl.onclick = e => {
+    const b = e.target.closest('[data-spice]');
+    if (!b) return;
+    const s = b.dataset.spice;
+    picked.has(s) ? picked.delete(s) : picked.add(s);
+    const on = picked.has(s);
+    b.classList.toggle('active', on);
+    b.setAttribute('aria-pressed', on);
+    b.textContent = (on ? '✓ ' : '') + s;
+  };
   document.getElementById('cancel').onclick = () => { location.hash = backTarget || '#/'; };
 
   let saving = false;
@@ -659,6 +704,8 @@ async function viewEdit(id) {
       servings: val('srv'),
       time: val('time'),
       ingredients: val('ing'),
+      // angehakte Standard-Gewürze (in fester Reihenfolge) + eigene Gewürze
+      spices: [...STANDARD_SPICES.filter(s => picked.has(s)), ...lines(val('spx'))],
       steps: val('steps'),
       notes: val('notes'),
       source: val('src'),
@@ -698,7 +745,7 @@ async function viewPickRecipe() {
   setTab('shop');
   setHeader('Rezept auswählen', '#/einkauf');
   const all = (await Store.all())
-    .filter(r => r.ingredients.length)
+    .filter(r => allIngs(r).length)
     .sort((a, b) => (b.favorite - a.favorite) || a.title.localeCompare(b.title, 'de'));
   if (!all.length) {
     $view.innerHTML = `<div class="empty"><div class="big">📖</div>
@@ -725,7 +772,7 @@ async function viewPickRecipe() {
 async function viewShopCheck(id, params) {
   setTab('shop');
   const r = await Store.get(id);
-  if (!r || !r.ingredients.length) { location.hash = '#/einkauf'; return; }
+  if (!r || !allIngs(r).length) { location.hash = '#/einkauf'; return; }
   const fromRecipe = params.get('von') === 'rezept';
   setHeader('Was ist zuhause?', fromRecipe ? '#/rezept/' + encodeURIComponent(id) : '#/einkauf/auswahl');
 
@@ -755,14 +802,10 @@ async function viewShopCheck(id, params) {
   const ul = document.getElementById('ings');
   const btn = document.getElementById('addMissing');
   const draw = () => {
-    ul.innerHTML = r.ingredients.map((line, i) => `
-      <li data-i="${i}" class="${have.has(i) ? 'have' : ''}">
-        <span class="t">${esc(scaleLine(line, factor()))}</span>
-        ${have.has(i) ? '<span class="tag">zuhause</span>' : ''}
-      </li>`).join('');
+    ul.innerHTML = ingListHtml(r, factor(), have);
     const srv = document.getElementById('srv');
     if (srv) srv.textContent = `${servings} ${servings === 1 ? 'Portion' : 'Portionen'}`;
-    const n = r.ingredients.length - have.size;
+    const n = allIngs(r).length - have.size;
     btn.disabled = n === 0;
     btn.textContent = n ? `🛒 ${n} ${n === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste` : 'Alles zuhause – nichts zu kaufen';
   };
@@ -775,7 +818,7 @@ async function viewShopCheck(id, params) {
     have.has(i) ? have.delete(i) : have.add(i);
     draw();
   };
-  document.getElementById('allHave').onclick = () => { r.ingredients.forEach((_, i) => have.add(i)); draw(); };
+  document.getElementById('allHave').onclick = () => { allIngs(r).forEach((_, i) => have.add(i)); draw(); };
   document.getElementById('noneHave').onclick = () => { have.clear(); draw(); };
   if (base) {
     document.getElementById('minus').onclick = () => { if (servings > 1) { servings--; draw(); } };
@@ -795,7 +838,8 @@ async function addToShopping(r, factor, have) {
   const items = (await Store.getKV('shopping')) || [];
   const now = Date.now();
   let added = 0;
-  r.ingredients.forEach((line, i) => {
+  const entries = allIngs(r);
+  entries.forEach((line, i) => {
     if (have.has(i)) return;
     const text = scaleLine(line, factor);
     // nicht doppelt eintragen, wenn es schon offen auf der Liste steht
@@ -804,7 +848,7 @@ async function addToShopping(r, factor, have) {
     added++;
   });
   await Promise.all([Store.setKV('shopping', items), Store.setKV('shoppingChangedAt', now)]);
-  const skipped = r.ingredients.length - have.size - added;
+  const skipped = entries.length - have.size - added;
   toast(!added ? 'Steht schon alles auf der Einkaufsliste'
     : `${added} ${added === 1 ? 'Zutat' : 'Zutaten'} auf die Einkaufsliste gesetzt` +
       (skipped ? ` (${skipped} stand${skipped === 1 ? '' : 'en'} schon drauf)` : ''));
