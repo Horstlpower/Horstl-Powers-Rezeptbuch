@@ -180,6 +180,9 @@ label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
 /* Gewürz-Knöpfe im Rezeptformular */
 .spice-chips { display: flex; flex-wrap: wrap; gap: 8px; }
 .op-hint { margin: 8px 0 6px; }
+.paste-box summary { cursor: pointer; font-weight: 700; color: var(--accent); list-style-position: inside; }
+.paste-box[open] summary { margin-bottom: 10px; }
+.paste-box p { margin: 0 0 10px; color: var(--muted); font-size: 14px; }
 .shop .del:disabled { opacity: .3; cursor: default; }
 .list-tools { display: flex; justify-content: flex-end; gap: 16px; margin-top: 8px; }
 .text-btn { border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; padding: 8px 0; cursor: pointer; }

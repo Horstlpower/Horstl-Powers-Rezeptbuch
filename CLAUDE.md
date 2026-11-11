@@ -73,3 +73,6 @@ Im Projektordner einen einfachen Webserver starten (z. B. `python -m http.server
 - Mehrere Fotos pro Rezept, Tags, Bewertung
 - Rezept aus Website-Link importieren
 - Kochmodus (Bildschirm bleibt an, große Schrift, Schritt für Schritt)
+
+Rezepttext einfügen: `parseRecipeText(text, spiceList)` (vor `viewEdit`) zerlegt kopierten Text (z. B. iPhone
+Live Text) heuristisch in Titel/Portionen/Zeit/Zutaten/Gewürze/Schritte/Notizen; Formular hat dafür `#pasteBox`.
