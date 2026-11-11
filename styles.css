@@ -179,6 +179,8 @@ label { display: block; font-weight: 600; font-size: 14px; margin: 14px 0 6px; }
 .ings li.sub::before { display: none; }
 /* Gewürz-Knöpfe im Rezeptformular */
 .spice-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.op-hint { margin: 8px 0 6px; }
+.shop .del:disabled { opacity: .3; cursor: default; }
 .list-tools { display: flex; justify-content: flex-end; gap: 16px; margin-top: 8px; }
 .text-btn { border: 0; background: none; color: var(--accent); font: inherit; font-size: 14px; padding: 8px 0; cursor: pointer; }
 .sticky-bar {

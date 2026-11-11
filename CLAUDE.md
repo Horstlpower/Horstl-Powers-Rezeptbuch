@@ -25,7 +25,10 @@ alle Texte in der App und alle Antworten auf Deutsch.
 ## Datenformat eines Rezepts
 `{ id, title, category, servings, time, ingredients: [string], spices: [string], steps: [string], notes, source,
 photo (data:image/jpeg;base64,…), favorite, createdAt, updatedAt }` – siehe `normalize()` in `app.js`.
-Gewürze (`spices`, fehlt bei alten Rezepten): Formular bietet `STANDARD_SPICES` als Knöpfe + Freitext. Anzeige über
+Gewürze (`spices`, fehlt bei alten Rezepten): Formular bietet die eigene Gewürzliste als Knöpfe + Freitext.
+Eigene Listen (`LISTS`, `getList`/`setList`): kv `spiceList` (Gewürze) und `opList` (Arbeitsschritte fürs
+Zubereitungsfeld), bearbeitbar unter `#/mehr/liste/gewuerze|schritte`; ohne gespeicherten Wert gelten
+`STANDARD_SPICES`/`STANDARD_OPS`. Export enthält `lists`, Import führt sie zusammen (nur ergänzen). Anzeige über
 `ingListHtml()` – Zutaten oben, Gewürze unten; Index ≥ `ingredients.length` = Gewürz (`allIngs()`).
 Vorrat/„Was kann ich kochen?“ prüfen bewusst nur `ingredients`, nicht die Gewürze.
 Einkaufsliste: IndexedDB-Store `kv`, Schlüssel `shopping`, Liste von `{ id, text, from, done, addedAt }`

@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
@@ -109,8 +109,33 @@ function setTab(name) {
   document.querySelectorAll('.tabbar a').forEach(a => a.classList.toggle('active', a.dataset.tab === name));
 }
 
-/* Gewürze: Standardliste zum Antippen beim Rezept anlegen (vom Nutzer vorgegeben, hier erweiterbar) */
+/* Schnellauswahl beim Rezept anlegen. Das sind nur die Startwerte –
+   der Nutzer pflegt die Listen selbst unter „Mehr“ (kv `spiceList` / `opList`). */
 const STANDARD_SPICES = ['Salz', 'Pfeffer', 'Oregano', 'Basilikum', 'Kümmel', 'Paprikapulver'];
+const STANDARD_OPS = ['Anbraten', 'Rösten', 'Anschwitzen', 'Kochen', 'Köcheln lassen', 'Dünsten',
+  'Schmoren', 'Braten', 'Backen', 'Aufkochen', 'Ablöschen', 'Würzen', 'Abschmecken',
+  'Verrühren', 'Pürieren', 'Ruhen lassen'];
+const LISTS = {
+  gewuerze: { key: 'spiceList', title: 'Gewürze', icon: '🌿', defaults: STANDARD_SPICES,
+    placeholder: 'z. B. Majoran', hint: 'Diese Gewürze kannst du beim Anlegen eines Rezepts antippen.' },
+  schritte: { key: 'opList', title: 'Arbeitsschritte', icon: '🍳', defaults: STANDARD_OPS,
+    placeholder: 'z. B. Karamellisieren', hint: 'Diese Wörter kannst du bei der Zubereitung antippen, statt sie zu tippen.' },
+};
+function cleanList(arr) {
+  const seen = new Set();
+  return (arr || []).map(s => String(s).trim()).filter(s => {
+    const k = s.toLowerCase();
+    if (!s || seen.has(k)) return false;
+    seen.add(k); return true;
+  });
+}
+async function getList(kind) {
+  const v = await Store.getKV(LISTS[kind].key);
+  return Array.isArray(v) ? cleanList(v) : [...LISTS[kind].defaults];
+}
+function setList(kind, arr) {
+  return Store.setKV(LISTS[kind].key, cleanList(arr));
+}
 
 /* Zutaten + Gewürze als eine Liste (Index < ingredients.length = Zutat, sonst Gewürz) */
 function allIngs(r) {
@@ -219,7 +244,9 @@ async function route() {
       case 'tiefkuehl':
         if (parts[1]) return await viewFreezerItem(decodeURIComponent(parts[1]));
         return await viewFreezer();
-      case 'mehr': return await viewMore();
+      case 'mehr':
+        if (parts[1] === 'liste' && LISTS[parts[2]]) return await viewListEdit(parts[2]);
+        return await viewMore();
       default: location.hash = '#/';
     }
   } catch (e) {
@@ -580,12 +607,14 @@ async function viewEdit(id) {
   if (id && !r) { location.hash = '#/'; return; }
   const d = r || { title: '', category: 'Hauptgericht', servings: 4, time: '', ingredients: [], spices: [], steps: [], notes: '', source: '', photo: '' };
   let photo = safeImg(d.photo);
-  // Gewürze aufteilen: Standard-Gewürze werden als Knopf angehakt, alle anderen stehen im Freitextfeld
+  const spiceList = await getList('gewuerze');
+  const opList = await getList('schritte');
+  // Gewürze aufteilen: Gewürze aus der eigenen Liste werden als Knopf angehakt, alle anderen stehen im Freitextfeld
   const stdKey = s => s.trim().toLowerCase();
   const picked = new Set();
   const extraSpices = [];
   (d.spices || []).forEach(s => {
-    const std = STANDARD_SPICES.find(x => stdKey(x) === stdKey(s));
+    const std = spiceList.find(x => stdKey(x) === stdKey(s));
     std ? picked.add(std) : extraSpices.push(s);
   });
 
@@ -622,8 +651,8 @@ async function viewEdit(id) {
       <label for="ing">Zutaten <span class="hint">– eine pro Zeile, z. B. „200 g Mehl“</span></label>
       <textarea id="ing" rows="8">${esc(d.ingredients.join('\n'))}</textarea>
 
-      <label>Gewürze <span class="hint">– antippen, was ins Rezept soll</span></label>
-      <div class="spice-chips" id="spiceChips">${STANDARD_SPICES.map(s =>
+      <label>Gewürze <span class="hint">– antippen, was ins Rezept soll (Liste änderbar unter „Mehr“)</span></label>
+      <div class="spice-chips" id="spiceChips">${spiceList.map(s =>
         `<button type="button" class="chip${picked.has(s) ? ' active' : ''}" data-spice="${esc(s)}"
           aria-pressed="${picked.has(s)}">${picked.has(s) ? '✓ ' : ''}${esc(s)}</button>`).join('')}</div>
       <label for="spx" style="font-weight:400">Weitere Gewürze <span class="hint">– eine pro Zeile, gern mit Menge, z. B. „1 TL Majoran“</span></label>
@@ -631,6 +660,9 @@ async function viewEdit(id) {
 
       <label for="steps">Zubereitung <span class="hint">– ein Schritt pro Zeile</span></label>
       <textarea id="steps" rows="8">${esc(d.steps.join('\n'))}</textarea>
+      ${opList.length ? `<div class="hint op-hint">Antippen fügt das Wort an der Schreibstelle ein:</div>
+      <div class="spice-chips" id="opChips">${opList.map(s =>
+        `<button type="button" class="chip" data-op="${esc(s)}">${esc(s)}</button>`).join('')}</div>` : ''}
 
       <label for="notes">Notizen</label>
       <textarea id="notes" rows="3">${esc(d.notes)}</textarea>
@@ -678,6 +710,40 @@ async function viewEdit(id) {
     b.setAttribute('aria-pressed', on);
     b.textContent = (on ? '✓ ' : '') + s;
   };
+
+  // Arbeitsschritte einfügen: am Zeilenanfang als neuer Satz („Anbraten “),
+  // mitten im Text klein angehängt („Zwiebeln anschwitzen“).
+  const stepsEl = document.getElementById('steps');
+  let stepsTouched = false;
+  ['focus', 'click', 'keyup', 'input', 'select'].forEach(ev =>
+    stepsEl.addEventListener(ev, () => { stepsTouched = true; }));
+  const opChips = document.getElementById('opChips');
+  if (opChips) {
+    // Fokus im Textfeld lassen (Desktop), damit die Schreibstelle erhalten bleibt
+    opChips.addEventListener('mousedown', e => { if (e.target.closest('[data-op]')) e.preventDefault(); });
+    opChips.onclick = e => {
+      const b = e.target.closest('[data-op]');
+      if (!b) return;
+      const word = b.dataset.op;
+      const text = stepsEl.value;
+      const pos = stepsTouched ? stepsEl.selectionStart : text.length;
+      const before = text.slice(0, pos), after = text.slice(pos);
+      const lineBefore = before.slice(before.lastIndexOf('\n') + 1);
+      let ins;
+      if (!lineBefore.trim()) {
+        ins = word + ' ';
+      } else if (!stepsTouched) {
+        ins = '\n' + word + ' ';
+      } else {
+        ins = (/\s$/.test(lineBefore) ? '' : ' ') + word.charAt(0).toLowerCase() + word.slice(1);
+        if (after && !/^[\s.,;!?]/.test(after)) ins += ' ';
+      }
+      stepsEl.value = before + ins + after;
+      const caret = pos + ins.length;
+      stepsEl.focus();
+      stepsEl.setSelectionRange(caret, caret);
+    };
+  }
   document.getElementById('cancel').onclick = () => { location.hash = backTarget || '#/'; };
 
   let saving = false;
@@ -704,8 +770,8 @@ async function viewEdit(id) {
       servings: val('srv'),
       time: val('time'),
       ingredients: val('ing'),
-      // angehakte Standard-Gewürze (in fester Reihenfolge) + eigene Gewürze
-      spices: [...STANDARD_SPICES.filter(s => picked.has(s)), ...lines(val('spx'))],
+      // angehakte Gewürze (in Reihenfolge der eigenen Liste) + weitere Gewürze
+      spices: [...spiceList.filter(s => picked.has(s)), ...lines(val('spx'))],
       steps: val('steps'),
       notes: val('notes'),
       source: val('src'),
@@ -1566,7 +1632,9 @@ function exportFileName() {
 }
 async function buildExportFile() {
   const recipes = await Store.all();
-  const data = { app: 'horstl-powers-rezeptbuch', format: 1, exportedAt: new Date().toISOString(), recipes };
+  const lists = {};
+  for (const kind of Object.keys(LISTS)) lists[kind] = await getList(kind);
+  const data = { app: 'horstl-powers-rezeptbuch', format: 1, exportedAt: new Date().toISOString(), recipes, lists };
   return new File([JSON.stringify(data)], exportFileName(), { type: 'application/json' });
 }
 function canShareFiles() {
@@ -1589,7 +1657,19 @@ async function importFile(file) {
     else if (rec.updatedAt > (existing.updatedAt || 0)) { await Store.put(rec); updated++; }
     else same++;
   }
-  toast(`Import fertig: ${added} neu, ${updated} aktualisiert, ${same} unverändert`);
+  // Eigene Listen zusammenführen: vorhandene bleiben, neue Einträge kommen hinten dazu
+  let newEntries = 0;
+  if (data && data.lists && typeof data.lists === 'object') {
+    for (const kind of Object.keys(LISTS)) {
+      if (!Array.isArray(data.lists[kind])) continue;
+      const cur = await getList(kind);
+      const merged = cleanList([...cur, ...data.lists[kind]]);
+      newEntries += merged.length - cur.length;
+      await setList(kind, merged);
+    }
+  }
+  toast(`Import fertig: ${added} neu, ${updated} aktualisiert, ${same} unverändert` +
+    (newEntries ? ` · ${newEntries} neue Listeneinträge` : ''));
   await viewMore();
 }
 
@@ -1599,8 +1679,19 @@ async function viewMore() {
   const count = (await Store.all()).length;
   const share = canShareFiles();
   const hasBg = !!safeImg(await Store.getKV('bgPhoto'));
+  const nSp = (await getList('gewuerze')).length;
+  const nOp = (await getList('schritte')).length;
 
   $view.innerHTML = `
+    <div class="panel">
+      <h3>Meine Listen fürs Rezept-Anlegen</h3>
+      <p>Gewürze und Arbeitsschritte, die du beim Anlegen eines Rezepts nur noch antippen musst.
+        Du kannst sie ergänzen, umbenennen, sortieren und löschen.</p>
+      <div class="row">
+        <button class="btn secondary" data-go="#/mehr/liste/gewuerze">🌿 Gewürze (${nSp})</button>
+        <button class="btn secondary" data-go="#/mehr/liste/schritte">🍳 Schritte (${nOp})</button>
+      </div>
+    </div>
     <div class="panel">
       <h3>Hintergrundfoto der Startseite</h3>
       <p>Wähle ein Foto aus deiner Mediathek. Es bleibt nur auf diesem Gerät gespeichert.</p>
@@ -1635,6 +1726,7 @@ async function viewMore() {
     <p class="meta" style="text-align:center">${APP_NAME} · Version ${APP_VERSION}<br>
       Deine Rezepte sind nur auf diesem Gerät gespeichert.</p>`;
 
+  $view.querySelectorAll('[data-go]').forEach(b => { b.onclick = () => { location.hash = b.dataset.go; }; });
   $view.querySelectorAll('.bgFile').forEach(input => {
     bindBgInput(input);
     const done = input.onchange;
@@ -1663,6 +1755,85 @@ async function viewMore() {
     e.target.value = '';
     if (file) await importFile(file);
   };
+}
+
+/* =========================================================
+   Ansicht: eigene Liste bearbeiten (Gewürze / Arbeitsschritte)
+   ========================================================= */
+async function viewListEdit(kind) {
+  const L = LISTS[kind];
+  setTab('more');
+  setHeader(L.title, '#/mehr');
+  let items = await getList(kind);
+
+  const save = async () => { await setList(kind, items); items = await getList(kind); };
+  const render = () => {
+    $view.innerHTML = `
+      <p class="meta">${esc(L.hint)} Zum Umbenennen einfach in den Text tippen.</p>
+      <form class="shop-add" id="addF" autocomplete="off">
+        <input id="addIn" placeholder="${esc(L.placeholder)}" enterkeyhint="done" aria-label="Neuer Eintrag">
+        <button class="btn" type="submit" aria-label="Hinzufügen">+</button>
+      </form>
+      <ul class="shop">${items.length ? items.map((s, i) => `
+        <li class="edit-row" data-i="${i}">
+          <input class="ren" value="${esc(s)}" aria-label="${esc(s)} umbenennen">
+          <button type="button" class="del" data-act="up" aria-label="Nach oben" ${i ? '' : 'disabled'}>↑</button>
+          <button type="button" class="del" data-act="down" aria-label="Nach unten" ${i < items.length - 1 ? '' : 'disabled'}>↓</button>
+          <button type="button" class="del" data-act="del" aria-label="${esc(s)} löschen">✕</button>
+        </li>`).join('') : '<li class="empty meta">Die Liste ist leer.</li>'}
+      </ul>
+      <div class="list-tools">
+        <button type="button" class="text-btn" id="reset">Auf Standard zurücksetzen</button>
+      </div>`;
+
+    const addIn = document.getElementById('addIn');
+    document.getElementById('addF').onsubmit = async e => {
+      e.preventDefault();
+      const v = addIn.value.trim();
+      if (!v) return;
+      if (items.some(x => x.toLowerCase() === v.toLowerCase())) { toast('„' + v + '“ ist schon in der Liste'); return; }
+      items.push(v);
+      await save();
+      render();
+      document.getElementById('addIn').focus();
+      toast('„' + v + '“ hinzugefügt');
+    };
+    $view.querySelectorAll('.edit-row').forEach(li => {
+      const i = Number(li.dataset.i);
+      const ren = li.querySelector('.ren');
+      ren.onchange = async () => {
+        const v = ren.value.trim();
+        if (!v) { ren.value = items[i]; return; }
+        if (items.some((x, j) => j !== i && x.toLowerCase() === v.toLowerCase())) {
+          toast('„' + v + '“ gibt es schon'); ren.value = items[i]; return;
+        }
+        items[i] = v;
+        await save();
+      };
+      ren.onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); ren.blur(); } };
+      li.querySelectorAll('[data-act]').forEach(b => {
+        b.onclick = async () => {
+          const act = b.dataset.act;
+          if (act === 'del') items.splice(i, 1);
+          else {
+            const j = act === 'up' ? i - 1 : i + 1;
+            if (j < 0 || j >= items.length) return;
+            [items[i], items[j]] = [items[j], items[i]];
+          }
+          await save();
+          render();
+        };
+      });
+    });
+    document.getElementById('reset').onclick = async () => {
+      if (!confirm('Liste auf die Standard-Einträge zurücksetzen? Eigene Einträge gehen dabei verloren.')) return;
+      items = [...L.defaults];
+      await save();
+      render();
+      toast('Liste zurückgesetzt');
+    };
+  };
+  render();
 }
 
 /* =========================================================
