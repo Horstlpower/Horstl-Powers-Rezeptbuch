@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.9.0';
+const APP_VERSION = '1.10.0';
 const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
@@ -495,7 +495,12 @@ async function viewDetail(id) {
       ${r.source ? `<h3 class="section-title">Quelle</h3>
         <div>${src ? `<a href="${esc(src)}" target="_blank" rel="noopener">${esc(src)}</a>` : esc(r.source)}</div>` : ''}
       <div class="actions">
-        <button class="btn secondary" id="shareBtn">Rezept teilen</button>
+        <button class="btn secondary" id="shareBtn">Als Text teilen</button>
+        <button class="btn secondary" id="shareFileBtn">Als Datei teilen</button>
+      </div>
+      <p class="meta share-hint">„Als Datei teilen“ erzeugt eine Rezept-Datei. Wer die App hat, liest sie unter
+        „Mehr“ → „Rezepte einlesen“ ein. Dabei wird das Rezept ergänzt, sonst wird nichts verändert.</p>
+      <div class="actions">
         <button class="btn danger" id="delBtn">Rezept löschen</button>
       </div>
     </div>`;
@@ -556,6 +561,7 @@ async function viewDetail(id) {
     if (r.notes) parts.push(r.notes);
     shareText(r.title, parts.join('\n\n'));
   };
+  document.getElementById('shareFileBtn').onclick = () => shareRecipeFile(r);
 
   document.getElementById('delBtn').onclick = async () => {
     if (!confirm(`„${r.title}“ wirklich löschen?`)) return;
@@ -563,6 +569,31 @@ async function viewDetail(id) {
     toast('Rezept gelöscht');
     location.hash = '#/';
   };
+}
+
+/* Einzelnes Rezept als Import-Datei (gleiches Format wie der Gesamt-Export, nur ohne Listen) */
+function recipeFile(r) {
+  const slug = r.title.toLowerCase()
+    .replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'rezept';
+  // Favorit ist persönlich – nicht mitgeben
+  const data = { app: 'horstl-powers-rezeptbuch', format: 1, shared: true, exportedAt: new Date().toISOString(),
+    recipes: [{ ...r, favorite: false }] };
+  return new File([JSON.stringify(data)], `rezept-${slug}.json`, { type: 'application/json' });
+}
+async function shareRecipeFile(r) {
+  const file = recipeFile(r);
+  if (canShareFiles()) {
+    try { await navigator.share({ files: [file], title: r.title }); return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  // Fallback (z. B. PC): Datei herunterladen
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url; a.download = file.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast('Datei „' + file.name + '“ gespeichert');
 }
 
 async function shareText(title, text) {
@@ -1654,7 +1685,11 @@ async function importFile(file) {
     if (!rec) continue;
     const existing = await Store.get(rec.id);
     if (!existing) { await Store.put(rec); added++; }
-    else if (rec.updatedAt > (existing.updatedAt || 0)) { await Store.put(rec); updated++; }
+    else if (rec.updatedAt > (existing.updatedAt || 0)) {
+      // Bei geteilten Einzelrezepten die eigene Favoriten-Markierung behalten
+      await Store.put(data.shared ? { ...rec, favorite: !!existing.favorite } : rec);
+      updated++;
+    }
     else same++;
   }
   // Eigene Listen zusammenführen: vorhandene bleiben, neue Einträge kommen hinten dazu
@@ -1667,6 +1702,13 @@ async function importFile(file) {
       newEntries += merged.length - cur.length;
       await setList(kind, merged);
     }
+  }
+  // Einzelnes Rezept: gleich anzeigen
+  const one = list.length === 1 && normalize(list[0]);
+  if (one && added + updated + same === 1) {
+    toast(added ? `„${one.title}“ hinzugefügt` : updated ? `„${one.title}“ aktualisiert` : `„${one.title}“ ist schon aktuell`);
+    location.hash = '#/rezept/' + encodeURIComponent(one.id);
+    return;
   }
   toast(`Import fertig: ${added} neu, ${updated} aktualisiert, ${same} unverändert` +
     (newEntries ? ` · ${newEntries} neue Listeneinträge` : ''));
@@ -1712,8 +1754,9 @@ async function viewMore() {
     </div>
     <div class="panel">
       <h3>Rezepte einlesen</h3>
-      <p>Liest eine Export-Datei ein. Neue Rezepte kommen dazu. Vorhandene werden nur ersetzt,
-        wenn die Datei eine neuere Version enthält.</p>
+      <p>Liest eine Export-Datei oder ein geteiltes Einzelrezept ein. Neue Rezepte kommen dazu.
+        Vorhandene werden nur ersetzt, wenn die Datei eine neuere Version desselben Rezepts enthält.
+        Es wird nie etwas gelöscht.</p>
       <label class="btn secondary block" style="margin:0">Datei auswählen …
         <input type="file" id="imp" hidden>
       </label>

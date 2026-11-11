@@ -1,6 +1,6 @@
 // Service Worker: macht die App offline nutzbar.
 // Bei jeder Änderung an den App-Dateien die Versionsnummer erhöhen.
-const CACHE = 'rezeptbuch-v15';
+const CACHE = 'rezeptbuch-v16';
 const ASSETS = [
   './',
   './index.html',
