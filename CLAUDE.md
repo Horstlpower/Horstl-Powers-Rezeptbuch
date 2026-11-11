@@ -75,4 +75,5 @@ Im Projektordner einen einfachen Webserver starten (z. B. `python -m http.server
 - Kochmodus (Bildschirm bleibt an, große Schrift, Schritt für Schritt)
 
 Rezepttext einfügen: `parseRecipeText(text, spiceList)` (vor `viewEdit`) zerlegt kopierten Text (z. B. iPhone
-Live Text) heuristisch in Titel/Portionen/Zeit/Zutaten/Gewürze/Schritte/Notizen; Formular hat dafür `#pasteBox`.
+Live Text) heuristisch in Titel/Portionen/Zeit/Zutaten/Gewürze/Schritte/Notizen; Formular: Einfügen je Feld (`data-paste`, paste-Event auf Titel/Zutaten/Zubereitung, force = ing|step).
+Layout: `.cards` braucht `grid-template-columns: minmax(0,1fr)`, sonst machen lange Namen die Seite breiter als das Display.

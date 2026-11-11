@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.11.0';
+const APP_VERSION = '1.12.0';
 const APP_NAME = 'Horstl-Powers Rezeptbuch';
 const CATEGORIES = ['Frühstück', 'Vorspeise', 'Suppe', 'Salat', 'Hauptgericht', 'Beilage',
   'Dessert', 'Kuchen & Gebäck', 'Getränk', 'Sonstiges'];
@@ -651,7 +651,9 @@ const PT_UNIT = /^(?:g|gr\.?|kg|mg|ml|cl|dl|l|liter|gramm|el|tl|prisen?|msp\.?|m
 const PT_QTY_ONLY = /^(?:\d+(?:[.,]\d+)?|\d+\/\d+|[½¼¾⅓⅔⅛]|\d+\s*[½¼¾])\s*(?:g|kg|ml|l|el|tl|prisen?|msp\.?|pck\.?|stk\.?|stück|bund|dosen?|becher|tassen?|zehen?|scheiben?)?\.?$/i;
 const PT_DESCR = /(frisch gemahlen(er)?|frisch gerieben(e|er)?|gerieben(e|er)?|frisch|gemahlen(er)?|aus der mühle|getrocknet(e|er)?|gerebelt(er)?|edelsüß|rosenscharf|geräuchert(es)?|schwarz(er)?|weiß(er)?|grob(es)?|fein(es)?|zum abschmecken|zum würzen|nach geschmack|nach belieben|n\.\s?b\.?)(?=\s|$|[,.])/gi;
 
-function parseRecipeText(text, spiceList = []) {
+/* force: 'ing' = Text kommt aus dem Zutatenfeld, 'step' = aus dem Zubereitungsfeld,
+   leer = ganzes Rezept (Titel wird gesucht). */
+function parseRecipeText(text, spiceList = [], force = '') {
   const res = { title: '', servings: 0, time: '', ingredients: [], spices: [], steps: [], notes: [] };
   const rows = String(text || '').replace(/\r/g, '').split('\n')
     .map(l => l.replace(/^[\s•·▪●◦○■□☐✓✔*\-–—]+/, '').replace(/\s+/g, ' ').trim())
@@ -687,7 +689,7 @@ function parseRecipeText(text, spiceList = []) {
     return !!spicesIn(l);
   };
 
-  let mode = null, numbered = false, pendingQty = null;
+  let mode = force || null, numbered = false, pendingQty = null;
   const afterColon = l => (l.includes(':') ? l.slice(l.indexOf(':') + 1).trim() : '');
   const addStep = l => {
     const m = l.match(PT_NUM);
@@ -716,14 +718,18 @@ function parseRecipeText(text, spiceList = []) {
     if (srv && short && !res.servings) res.servings = Number(srv[1]);
     if (tm && short && !res.time) res.time = tm[1].trim();
 
-    // Überschriften
-    if (short && PT_ING_H.test(l)) { mode = 'ing'; continue; }
-    if (short && PT_STEP_H.test(l)) { mode = 'step'; const r = afterColon(l); if (r) addStep(r); continue; }
+    // Überschriften (bei festem Feld nur überspringen)
+    if (short && PT_ING_H.test(l)) { if (!force) mode = 'ing'; continue; }
+    if (short && PT_STEP_H.test(l)) {
+      if (!force) mode = 'step';
+      const r = afterColon(l); if (r) (mode === 'step' ? addStep(r) : addIng(r));
+      continue;
+    }
     if (short && PT_NOTE_H.test(l)) { mode = 'note'; const r = afterColon(l); if (r) res.notes.push(r); continue; }
-    if (short && (srv || tm)) continue; // reine Info-Zeile
+    if (short && (srv || tm) && !(force === 'ing' && startsQty(l) && !srv)) continue; // reine Info-Zeile
 
     // Titel: erste „normale“ Zeile vor allem anderen
-    if (!res.title && mode === null && !isIng(l) && !PT_NUM.test(l) && l.length <= 80) {
+    if (!force && !res.title && mode === null && !isIng(l) && !PT_NUM.test(l) && l.length <= 80) {
       res.title = l.replace(/[:.]+$/, '');
       continue;
     }
@@ -736,7 +742,8 @@ function parseRecipeText(text, spiceList = []) {
     else if (PT_QTY_ONLY.test(l)) { pendingQty = l; continue; }
 
     if (mode === 'ing') {
-      if (PT_NUM.test(l) || looksSentence(l) || l.length > 70) { mode = 'step'; addStep(l); }
+      if (force === 'ing') addIng(l.replace(PT_NUM, '$2'));
+      else if (PT_NUM.test(l) || looksSentence(l) || l.length > 70) { mode = 'step'; addStep(l); }
       else addIng(l);
       continue;
     }
@@ -771,20 +778,11 @@ async function viewEdit(id) {
   const used = (await Store.all()).map(x => x.category).filter(Boolean);
   const allCats = [...new Set([...CATEGORIES, ...used])];
 
+  const canClip = !!(navigator.clipboard && navigator.clipboard.readText);
+  const pasteBtn = target => canClip
+    ? `<button type="button" class="paste-btn" data-paste="${target}">📋 Einfügen</button>` : '';
+
   $view.innerHTML = `
-    <details class="panel paste-box" id="pasteBox">
-      <summary>📋 Rezepttext einfügen <span class="hint">– z. B. vom Foto kopiert</span></summary>
-      <p><b>iPhone:</b> Foto des Rezepts in der Fotos-App öffnen → auf den Text tippen und halten →
-        „Alles auswählen“ → „Kopieren“.<br>
-        <b>Android:</b> Foto mit Google Lens öffnen → „Text“ → alles markieren → „Kopieren“.<br>
-        Dann hier einfügen – die App verteilt den Text auf die Felder. Bitte danach kurz prüfen.</p>
-      <textarea id="pasteTxt" rows="7" placeholder="Hier den Rezepttext einfügen …"></textarea>
-      <div class="row" style="margin-top:10px">
-        ${navigator.clipboard && navigator.clipboard.readText
-          ? '<button type="button" class="btn secondary" id="pasteClip">Aus Zwischenablage</button>' : ''}
-        <button type="button" class="btn" id="pasteApply">In Felder übernehmen</button>
-      </div>
-    </details>
     <form id="f" novalidate autocomplete="off">
       <label class="photo-pick" id="pick">
         <input type="file" accept="image/*" id="file" hidden>
@@ -792,7 +790,7 @@ async function viewEdit(id) {
       </label>
       <button type="button" class="link-btn" id="rmPhoto" hidden>Foto entfernen</button>
 
-      <label for="r-title">Name des Rezepts</label>
+      <div class="lbl-row"><label for="r-title">Name des Rezepts</label>${pasteBtn('r-title')}</div>
       <input id="r-title" value="${esc(d.title)}" placeholder="z. B. Kaiserschmarrn" enterkeyhint="next">
 
       <div class="row">
@@ -810,7 +808,8 @@ async function viewEdit(id) {
       <label for="time">Zeit <span class="hint">– z. B. 45 Min.</span></label>
       <input id="time" value="${esc(d.time)}">
 
-      <label for="ing">Zutaten <span class="hint">– eine pro Zeile, z. B. „200 g Mehl“</span></label>
+      <div class="lbl-row"><label for="ing">Zutaten <span class="hint">– eine pro Zeile, z. B. „200 g Mehl“</span></label>${pasteBtn('ing')}</div>
+      <p class="hint paste-tip">Tipp: Vom Foto kopierte Zutaten hier einfügen – die App räumt sie auf und hakt Gewürze an.</p>
       <textarea id="ing" rows="8">${esc(d.ingredients.join('\n'))}</textarea>
 
       <label>Gewürze <span class="hint">– antippen, was ins Rezept soll (Liste änderbar unter „Mehr“)</span></label>
@@ -820,7 +819,7 @@ async function viewEdit(id) {
       <label for="spx" style="font-weight:400">Weitere Gewürze <span class="hint">– eine pro Zeile, gern mit Menge, z. B. „1 TL Majoran“</span></label>
       <textarea id="spx" rows="3">${esc(extraSpices.join('\n'))}</textarea>
 
-      <label for="steps">Zubereitung <span class="hint">– ein Schritt pro Zeile</span></label>
+      <div class="lbl-row"><label for="steps">Zubereitung <span class="hint">– ein Schritt pro Zeile</span></label>${pasteBtn('steps')}</div>
       <textarea id="steps" rows="8">${esc(d.steps.join('\n'))}</textarea>
       ${opList.length ? `<div class="hint op-hint">Antippen fügt das Wort an der Schreibstelle ein:</div>
       <div class="spice-chips" id="opChips">${opList.map(s =>
@@ -879,44 +878,74 @@ async function viewEdit(id) {
     b.textContent = (on ? '✓ ' : '') + s;
   });
 
-  // Rezepttext einfügen → Felder füllen
-  const pasteTxt = document.getElementById('pasteTxt');
-  const pasteClip = document.getElementById('pasteClip');
-  if (pasteClip) pasteClip.onclick = async () => {
-    try {
-      const t = await navigator.clipboard.readText();
-      if (!t.trim()) { toast('Die Zwischenablage ist leer'); return; }
-      pasteTxt.value = t;
-    } catch {
-      showError('Kein Zugriff auf die Zwischenablage. Bitte ins Feld tippen, gedrückt halten und „Einfügen“ wählen.');
+  // Kopierten Text (z. B. vom Foto) ins jeweilige Feld einfügen und dabei aufräumen.
+  // Jedes Feld weiß, was es bekommt: Titel = erste Zeile, Zutaten = Zutaten/Gewürze, Zubereitung = Schritte.
+  const el = k => document.getElementById(k);
+  const insertLines = (ta, lns) => {
+    if (!lns.length) return;
+    const s = ta.selectionStart ?? ta.value.length, e = ta.selectionEnd ?? ta.value.length;
+    const before = ta.value.slice(0, s).replace(/\s+$/, ''), after = ta.value.slice(e).replace(/^\s+/, '');
+    const ins = lns.join('\n');
+    ta.value = [before, ins, after].filter(Boolean).join('\n');
+    const caret = (before ? before.length + 1 : 0) + ins.length;
+    ta.setSelectionRange(caret, caret);
+  };
+  const appendNotes = notes => {
+    if (notes.length) el('notes').value = [el('notes').value.trim(), ...notes].filter(Boolean).join('\n');
+  };
+  const handlePaste = (target, text) => {
+    if (!text || !text.trim()) return false;
+    if (target === 'r-title') {
+      const first = text.split('\n').map(s => s.trim()).find(Boolean) || '';
+      el('r-title').value = first.replace(/[:.]+$/, '');
+      return true;
     }
+    if (target === 'ing') {
+      const p = parseRecipeText(text, spiceList, 'ing');
+      insertLines(el('ing'), p.ingredients);
+      const extra = [];
+      p.spices.forEach(s => {
+        const std = spiceList.find(x => stdKey(x) === stdKey(s));
+        std ? picked.add(std) : extra.push(s);
+      });
+      syncChips();
+      if (extra.length) el('spx').value = [el('spx').value.trim(), ...extra].filter(Boolean).join('\n');
+      if (p.servings && !el('srv').value) el('srv').value = p.servings;
+      if (p.time && !el('time').value.trim()) el('time').value = p.time;
+      appendNotes(p.notes);
+      toast(`Eingefügt: ${p.ingredients.length} Zutaten` + (p.spices.length ? `, ${p.spices.length} Gewürze` : ''));
+      return true;
+    }
+    if (target === 'steps') {
+      const p = parseRecipeText(text, spiceList, 'step');
+      insertLines(el('steps'), p.steps);
+      if (p.time && !el('time').value.trim()) el('time').value = p.time;
+      appendNotes(p.notes);
+      toast(`Eingefügt: ${p.steps.length} ${p.steps.length === 1 ? 'Schritt' : 'Schritte'}`);
+      return true;
+    }
+    return false;
   };
-  document.getElementById('pasteApply').onclick = () => {
-    const p = parseRecipeText(pasteTxt.value, spiceList);
-    const n = p.ingredients.length + p.spices.length + p.steps.length;
-    if (!n && !p.title) { showError('Im Text wurde nichts gefunden. Bitte zuerst den Rezepttext einfügen.'); return; }
-    const el = k => document.getElementById(k);
-    const filled = ['ing', 'spx', 'steps'].some(k => el(k).value.trim()) || picked.size;
-    if (filled && !confirm('Zutaten, Gewürze und Zubereitung durch den eingefügten Text ersetzen?')) return;
-    if (p.title) el('r-title').value = p.title;
-    if (p.servings) el('srv').value = p.servings;
-    if (p.time) el('time').value = p.time;
-    el('ing').value = p.ingredients.join('\n');
-    picked.clear();
-    const extra = [];
-    p.spices.forEach(s => {
-      const std = spiceList.find(x => stdKey(x) === stdKey(s));
-      std ? picked.add(std) : extra.push(s);
+  ['r-title', 'ing', 'steps'].forEach(k => {
+    el(k).addEventListener('paste', e => {
+      const text = e.clipboardData && e.clipboardData.getData('text/plain');
+      // einzeiliger Text: normal einfügen lassen (z. B. eine einzelne Zutat)
+      if (!text || !text.includes('\n')) return;
+      e.preventDefault();
+      handlePaste(k, text);
     });
-    syncChips();
-    el('spx').value = extra.join('\n');
-    el('steps').value = p.steps.join('\n');
-    if (p.notes.length) el('notes').value = [el('notes').value.trim(), ...p.notes].filter(Boolean).join('\n');
-    document.getElementById('pasteBox').open = false;
-    pasteTxt.value = '';
-    window.scrollTo(0, 0);
-    toast(`Übernommen: ${p.ingredients.length} Zutaten, ${p.spices.length} Gewürze, ${p.steps.length} Schritte – bitte kurz prüfen`);
-  };
+  });
+  $view.querySelectorAll('[data-paste]').forEach(b => {
+    b.onclick = async () => {
+      const k = b.dataset.paste;
+      try {
+        const t = await navigator.clipboard.readText();
+        if (!handlePaste(k, t)) toast('Die Zwischenablage ist leer');
+      } catch {
+        showError('Kein Zugriff auf die Zwischenablage. Bitte ins Feld tippen, gedrückt halten und „Einfügen“ wählen.');
+      }
+    };
+  });
 
   // Arbeitsschritte einfügen: am Zeilenanfang als neuer Satz („Anbraten “),
   // mitten im Text klein angehängt („Zwiebeln anschwitzen“).
